@@ -52,7 +52,7 @@ export interface PointerLike {
  * Actions a key press can stand for. 'toggle' and 'viewpoint:n' are for the rig; the rest are for
  * the app, which the rig passes on untouched.
  */
-export type KeyAction = 'toggle' | 'menu' | 'mute' | 'stats' | 'mood' | 'photo' | `viewpoint:${number}`;
+export type KeyAction = 'toggle' | 'menu' | 'mute' | 'stats' | 'mood' | 'photo' | 'station' | `viewpoint:${number}`;
 
 const ACTION_KEYS: Readonly<Record<string, KeyAction>> = {
   Space: 'toggle',
@@ -61,6 +61,7 @@ const ACTION_KEYS: Readonly<Record<string, KeyAction>> = {
   KeyH: 'stats',
   KeyT: 'mood',
   KeyP: 'photo',
+  KeyR: 'station',
   Digit1: 'viewpoint:0', Digit2: 'viewpoint:1', Digit3: 'viewpoint:2',
   Digit4: 'viewpoint:3', Digit5: 'viewpoint:4', Digit6: 'viewpoint:5',
   Numpad1: 'viewpoint:0', Numpad2: 'viewpoint:1', Numpad3: 'viewpoint:2',

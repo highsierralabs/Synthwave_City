@@ -46,6 +46,7 @@ browser with WebGL2.
 | Tour on / off | `Space` |
 | Viewpoints | `1` to `6` |
 | Next mood | `T` |
+| Next radio station | `R` |
 | Mute | `M` |
 | Photo mode | `P` |
 | Stats | `H` |
@@ -57,6 +58,12 @@ to fly, and add a second finger to boost.
 
 The menu has three moods (Sunset, Midnight, Miami), three detail levels (changing it reloads the
 page), sound on or off, and an optional CRT scanline look. Choices are remembered in this browser.
+
+**Radio.** Five stations play in the city, each a different kind of synthwave, all of it
+synthesized as it plays: Sunset FM 88.8 (outrun), Obsidian 93.3 (darksynth), Velvet 97.1
+(chillwave), Starport 101.5 (spacesynth) and Plaza 104.3 (mallsoft). Pick one in the menu's Radio
+row or press R to turn the dial. The stations keep broadcasting while you listen to another, so
+tuning in lands somewhere in the middle of a song. Their billboards are on the towers.
 
 **Other cities.** Every city grows from one number, its seed; the original is 1984. The menu's City row
 shows the number of the city you are in. Type another (any whole number from 1 to 4294967295) and press

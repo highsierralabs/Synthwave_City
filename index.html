@@ -141,6 +141,12 @@
   #seedNote { display: none; grid-column: 2; font-size: 0.72rem; letter-spacing: 0.1em; color: #ff9be8; text-align: left; padding: 0 0.3rem 0.2rem; }
   #cityRow.bad #seedNote { display: block; }
 
+  #stations button { min-width: 0; padding-left: 0; padding-right: 0; letter-spacing: 0.03em; font-size: 0.8rem; }
+  #stationNote {
+    grid-column: 2; font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--yellow);
+    text-align: left; padding: 0 0.3rem 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
   #keys {
     display: grid; grid-template-columns: repeat(2, auto 1fr); gap: 0.35rem 0.8rem; align-items: center;
     padding: 0.8rem 1rem; border-radius: 0.3rem; background: rgba(6, 2, 28, 0.62);
@@ -269,6 +275,10 @@
       <div class="row"><span id="soundLabel">Sound</span><div id="sound" role="group" aria-labelledby="soundLabel">
         <button type="button" data-sound="on">On</button><button type="button" data-sound="off">Off</button>
       </div></div>
+      <div class="row" id="radioRow"><span id="radioLabel">Radio</span>
+        <div id="stations" role="group" aria-labelledby="radioLabel"></div>
+        <div id="stationNote" aria-live="polite"></div>
+      </div>
       <div class="row"><span id="lookLabel">Screen</span><div id="look" role="group" aria-labelledby="lookLabel">
         <button type="button" data-crt="off">Clean</button><button type="button" data-crt="on">CRT</button>
       </div></div>
@@ -294,6 +304,7 @@
         <kbd>Space</kbd><span>Tour on / off</span>
         <kbd>1 &ndash; 6</kbd><span>Viewpoints</span>
         <kbd>T</kbd><span>Next mood</span>
+        <kbd>R</kbd><span>Next station</span>
         <kbd>M</kbd><span>Mute</span>
         <kbd>P</kbd><span>Photo mode</span>
         <kbd>H</kbd><span>Stats</span>

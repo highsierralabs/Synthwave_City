@@ -2,6 +2,7 @@
 // logic is testable and every access is guarded.
 import { MOODS, type MoodId } from '../contracts/moods';
 import { QUALITY, QUALITY_ORDER, type QualityTier } from '../contracts/quality';
+import { DEFAULT_STATION, isStationId, type StationId } from '../audio/index';
 import { DEFAULT_SEED, isSeed } from './seed';
 
 export interface Settings {
@@ -14,6 +15,8 @@ export interface Settings {
   crt: boolean;
   /** The city last chosen in the menu (M9). An address `?seed=` wins over it. */
   seed: number;
+  /** The radio station last tuned to. */
+  station: StationId;
   /** Tier of a boot that has not yet reached its first frame. Used to step down after a crash. */
   pending: QualityTier | null;
 }
@@ -21,7 +24,7 @@ export interface Settings {
 export const STORAGE_KEY = 'synthwave-city/v1';
 
 export const DEFAULTS: Readonly<Settings> = {
-  tier: null, mood: 'sunset', muted: false, volume: 0.7, crt: false, seed: DEFAULT_SEED, pending: null,
+  tier: null, mood: 'sunset', muted: false, volume: 0.7, crt: false, seed: DEFAULT_SEED, station: DEFAULT_STATION, pending: null,
 };
 
 export interface StorageLike {
@@ -44,6 +47,7 @@ export function validate(raw: unknown): Settings {
   if (typeof r['muted'] === 'boolean') out.muted = r['muted'];
   if (typeof r['crt'] === 'boolean') out.crt = r['crt'];
   if (isSeed(r['seed'])) out.seed = r['seed'];
+  if (isStationId(r['station'])) out.station = r['station'];
   if (typeof r['volume'] === 'number' && Number.isFinite(r['volume'])) out.volume = Math.min(1, Math.max(0, r['volume']));
   return out;
 }

@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01]
 owns: [src/camera/**, tests/unit/camera/**, plans/T11-camera.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # T11: camera
@@ -149,6 +149,10 @@ detaches the previous binding first. Tests are pure and safe to re-run. Screensh
 - [x] 2026-11-14 Live check in real Chromium with real key and mouse events and synthetic touch.
 - [x] 2026-11-14 `npm run check:task -- T11` PASS; `npm run plans:check` OK.
 
+- [x] 2026-11-15 Small fix for the radio (T10 M6, T12 M10): `KeyR` maps to a new action
+  `'station'` in `src/camera/input.ts`, which the rig passes to the app like `mood`. One assertion
+  added to `tests/unit/camera/input.test.ts`; `npm run check:task -- T11` PASS, camera tests pass.
+
 Nothing is left open inside the owned paths. The three human checks remain for the operator.
 
 ## 9. Surprises and discoveries
@@ -232,6 +236,9 @@ All dated 2026-11-14.
   and T12 was told the exact list of action strings; an extra one could surprise its handler.
 - **`handleKey`, `input`, `reducedMotion` and `resumeSuggested` were added to the rig.** Additive;
   they let T12 build on-screen controls and let the tests drive the rig without a DOM.
+
+- **`R` is the station key (2026-11-15).** Free, next to `T` for mood, and not used for flight. The
+  action list T12 handles grows by one; T12 changed its handler in the same revision.
 
 ## 11. Contract change requests
 

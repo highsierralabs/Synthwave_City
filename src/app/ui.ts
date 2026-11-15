@@ -1,5 +1,6 @@
 // The DOM around the canvas (plan T12, M2 and M3): overlay states, menu rows, HUD, toasts, stats.
 // Plain DOM; index.html holds the markup and the styles.
+import { STATION_IDS, STATIONS, type StationId } from '../audio/index';
 import { MOOD_ORDER, MOODS, type MoodId } from '../contracts/moods';
 import { QUALITY_ORDER, type QualityTier } from '../contracts/quality';
 
@@ -13,6 +14,8 @@ export interface UiHandlers {
   onMood(id: MoodId): void;
   onTier(tier: QualityTier): void;
   onSound(on: boolean): void;
+  /** A Radio button: tune to this station. */
+  onStation(id: StationId): void;
   onCrt(on: boolean): void;
   onFullscreen(on: boolean): void;
   /** Return the camera to the tour (the touch counterpart of Space). */
@@ -33,6 +36,8 @@ export interface Ui {
   setMood(id: MoodId): void;
   setTier(tier: QualityTier): void;
   setSound(on: boolean): void;
+  /** Mark the station that is playing, and name it under the buttons. */
+  setStation(id: StationId): void;
   setCrt(on: boolean): void;
   setFullscreenOffer(offer: FullscreenOffer): void;
   /** Show the current city number in the City field. */
@@ -69,6 +74,8 @@ export function createUi(handlers: UiHandlers): Ui {
   const moods = byId('moods');
   const tiers = byId('tiers');
   const sound = byId('sound');
+  const stations = byId('stations');
+  const stationNote = byId('stationNote');
   const look = byId('look');
   const fsChoice = byId('fsChoice');
   const fsButton = byId('fsButton');
@@ -101,6 +108,17 @@ export function createUi(handlers: UiHandlers): Ui {
     b.dataset['tier'] = tier;
     b.addEventListener('click', () => handlers.onTier(tier));
     tiers.appendChild(b);
+  }
+  for (const id of STATION_IDS) {
+    const station = STATIONS[id];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = station.frequency;
+    b.dataset['station'] = id;
+    b.setAttribute('aria-label', `${station.name} ${station.frequency}, ${station.genre}`);
+    b.title = `${station.name} · ${station.genre}`;
+    b.addEventListener('click', () => handlers.onStation(id));
+    stations.appendChild(b);
   }
   for (const b of Array.from(sound.querySelectorAll('button'))) {
     b.addEventListener('click', () => handlers.onSound(b.dataset['sound'] === 'on'));
@@ -160,6 +178,11 @@ export function createUi(handlers: UiHandlers): Ui {
     },
     setSound(on: boolean): void {
       press(sound, (b) => (b.dataset['sound'] === 'on') === on);
+    },
+    setStation(id: StationId): void {
+      press(stations, (b) => b.dataset['station'] === id);
+      const station = STATIONS[id];
+      stationNote.textContent = `${station.name} ${station.frequency} · ${station.genre}`;
     },
     setCrt(on: boolean): void {
       press(look, (b) => (b.dataset['crt'] === 'on') === on);

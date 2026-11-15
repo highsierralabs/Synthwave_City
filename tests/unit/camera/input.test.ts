@@ -71,6 +71,7 @@ describe('input: keyboard', () => {
     expect(m.keyDown(key('KeyM'))).toBe('mute');
     expect(m.keyDown(key('KeyH'))).toBe('stats');
     expect(m.keyDown(key('KeyT'))).toBe('mood');
+    expect(m.keyDown(key('KeyR'))).toBe('station');
     expect(m.keyDown(key('KeyP'))).toBe('photo');
     expect(m.keyDown(key('Digit1'))).toBe('viewpoint:0');
     expect(m.keyDown(key('Digit6'))).toBe('viewpoint:5');

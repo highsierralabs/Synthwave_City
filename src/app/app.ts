@@ -1,6 +1,6 @@
 // Boot and wiring (plan T12, M1 and M4): plan -> engine -> camera rig -> audio, plus the UI around them.
 // The only module allowed to import everything (architecture.md section 3.2).
-import { createAudio } from '../audio/index';
+import { createAudio, nextStation, STATIONS, type StationId } from '../audio/index';
 import { createCameraRig } from '../camera/index';
 import { createCityPlan } from '../city/index';
 import { MOOD_ORDER, MOODS, type MoodId } from '../contracts/moods';
@@ -78,6 +78,16 @@ export async function boot(): Promise<void> {
     ui.setSound(!muted);
     if (announce) ui.toast(muted ? 'Sound off' : 'Sound on');
   };
+  const setStation = (id: StationId, announce: boolean): void => {
+    settings.station = id;
+    save();
+    audio?.setStation(id);
+    ui.setStation(id);
+    if (announce) {
+      const station = STATIONS[id];
+      ui.toast(`${station.frequency} ${station.name}`);
+    }
+  };
   const modeLabel = (): string => (rig && rig.mode === 'free' ? 'Free flight' : 'Tour');
   const hintFor = (): string => {
     if (coarse) {
@@ -130,6 +140,7 @@ export async function boot(): Promise<void> {
     else if (action === 'mute') setMuted(!settings.muted, true);
     else if (action === 'stats') ui.toggle('stats');
     else if (action === 'photo') ui.toggle('photo');
+    else if (action === 'station') setStation(nextStation(settings.station), true);
     else if (action === 'mood') setMood(MOOD_ORDER[(MOOD_ORDER.indexOf(settings.mood) + 1) % MOOD_ORDER.length]!, true);
     else if (action === 'mode') {
       ui.setFree(rig?.mode === 'free');
@@ -157,6 +168,7 @@ export async function boot(): Promise<void> {
       location.replace(url.toString());
     },
     onSound: (on) => setMuted(!on, false),
+    onStation: (id) => setStation(id, false),
     onCrt: (on) => {
       settings.crt = on;
       save();
@@ -217,6 +229,7 @@ export async function boot(): Promise<void> {
   ui.setTier(tier);
   ui.setMood(settings.mood);
   ui.setSound(!settings.muted);
+  ui.setStation(settings.station);
   ui.setCrt(settings.crt);
   ui.setSeed(seed);
 
@@ -247,7 +260,7 @@ export async function boot(): Promise<void> {
     rig.setReducedMotion(reducedMotion.matches);
     engine.setReducedMotion(reducedMotion.matches);
     engine.setCameraDriver(rig);
-    audio = createAudio({ seed, volume: settings.volume, muted: settings.muted });
+    audio = createAudio({ seed, volume: settings.volume, muted: settings.muted, station: settings.station });
     installDebugApi(engine, plan, ui.canvas, planMs);
 
     const t = params.get('t');
@@ -289,6 +302,7 @@ export async function boot(): Promise<void> {
       `${s.fps.toFixed(0)} fps   ${s.frameMs.toFixed(1)} ms   cpu ${s.cpuMs.toFixed(2)} ms`,
       `${s.drawCalls} draws   ${(s.triangles / 1e6).toFixed(2)} M tris`,
       `scale ${s.renderScale.toFixed(2)}   ${live.quality.tier}   ${live.pipelineKind}   city ${seed}`,
+      `radio ${STATIONS[liveAudio.station].frequency} ${liveAudio.station}   audio ${liveAudio.state}`,
       `speed ${liveRig.speed.toFixed(0)} m/s   alt ${live.pose.y.toFixed(0)} m`,
       `layers ${live.layerIds.join(' ')}`,
       ...live.errors.slice(0, 4),

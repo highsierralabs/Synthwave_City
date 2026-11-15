@@ -135,6 +135,24 @@ into a different city whose number is in the field and the address; typing a num
 Enter key) loads that city; an invalid entry is refused without a reload; the choice survives a
 plain visit; `?seed=` beats the stored seed.
 
+**M10. Radio (revision, 2026-11-15).** The operator: "Let's make a few radio stations to choose
+from. I think 5 stations should be good, each with a distinct synthwave sound and billboard." The
+stations are T10 M6 (`src/audio/stations.ts`, `setStation`), the billboards T09 M7. Work here:
+
+- Settings gain `station` (default `sunset`, validated with `isStationId`), passed to `createAudio`.
+- Menu: a row "Radio" after Sound, with five buttons labelled by frequency (88.8, 93.3, 97.1,
+  101.5, 104.3; the accessible name adds the station and genre) and a caption naming the chosen
+  station and genre. A tap tunes at once if the music is playing (the menu does not pause it), and
+  only chooses before the first ENTER.
+- `R` (T11's new `'station'` action) tunes to the next station on the dial, wrapping, with a toast
+  ("93.3 Obsidian"). The key list in the menu gains it.
+- The stats panel gains a line: station and audio state.
+
+Proof: unit tests for the settings field; in Chromium on a 360 px touch phone and a desktop: the
+five buttons fit without clipping or sideways scroll, a tap picks and remembers, a reload keeps it,
+R walks the dial with a toast, the stats name the station, the landscape phone still reaches the
+whole menu, no console errors.
+
 ## 6. Validation and acceptance
 
 - `npm run check` exits 0 (whole repo, since nothing else is in flight by now).
@@ -151,7 +169,8 @@ H-T12-3, pointer lock and audio start in a real (non-automated) browser session;
 on the operator's Android phone and tablet, entered from the menu and from the HUD button, and left
 with the back gesture; H-T12-5, Add to Home Screen on an iPhone opens without Safari's bars; H-T12-6, Back to tour on the
 operator's Android phone and tablet; H-T12-7, the City row on the same devices (number pad, Go key,
-New).
+New); H-T12-8, the Radio row on the same devices: five stations, each sounds different, switching
+while flying and from the menu.
 
 ## 7. Idempotence and recovery
 
@@ -244,6 +263,18 @@ Evidence:
       screenshots viewed            -> city-menu.png, city-bad.png, landscape-top.png,
                                        landscape-bottom.png
 
+- [x] 2026-11-15 M10 radio: `station` in `src/app/settings.ts`; the Radio row, caption and R in
+  `index.html`; `onStation` and `setStation` in `src/app/ui.ts`; tuning, toast and stats line in
+  `src/app/app.ts`. Settings test extended (bad station ids fall back to `sunset`). Evidence:
+  `node shots/T12/radio.mjs`, 16 of 16 ALL OK: five frequencies with Sunset FM chosen; buttons 41 px
+  each on a 360 px phone and 77 px on desktop, none clipped, no sideways scroll; tap picks Plaza and
+  stores it; kept after reload; R from Plaza wraps to 88.8 Sunset FM with the toast, then 93.3
+  Obsidian; stats line `radio 93.3 obsidian   audio running`; landscape 800x360 logo top 26 px and
+  credit bottom 353 of 360; no console errors on either. Looked at `shots/T12/radio-row-phone.png`
+  and `radio-menu-phone.png` (the second was taken mid-transition just after a tap, so two buttons
+  are half-coloured; the row shot is steady). `npm run check` 364 of 364; `npm run smoke` SMOKE OK,
+  median 6.9 ms, p99 7.1 ms, 59 draw calls.
+
 ## 9. Surprises and discoveries
 
 - The first smoke runs read 14 to 21 ms a frame and 8 to 12 ms of CPU. Two causes, neither in the app:
@@ -291,6 +322,12 @@ Evidence:
   working; it is offered on every device in the menu and as a HUD button on touch devices only, where
   there is no F11. No keyboard shortcut: the keys belong to the camera (T11) and F11 already exists.
 
+- **Radio buttons show frequencies, the caption shows the name (2026-11-15).** Five station names do
+  not fit a 360 px row; five frequencies do (41 px each), read as a dial, and match the billboards.
+- **Choosing a station in the menu does not start the audio (2026-11-15).** Audio still starts at
+  ENTER, as before; a choice made earlier simply plays then. After ENTER the menu leaves the music
+  running, so a tap there is heard at once.
+
 ## 11. Contract change requests
 
 None.
@@ -320,3 +357,7 @@ rolls one with New, and reloads into that city, which is remembered and put in t
 in Chromium with phone emulation and on desktop; not yet on the operator's devices (H-T12-7). Not
 verified: the number pad and Go key of the Android keyboard (`inputmode`, `enterkeyhint`); Safari's
 handling of `safe center` (older versions fall back to plain centring).
+
+**M10 outcome (2026-11-15).** Five stations can be chosen from the menu or with R, remembered in
+the browser and shown in the stats. Checked in Chromium with phone and desktop emulation. Not
+verified: the row on the operator's devices (H-T12-8), and how the stations sound (H-T10-6).
