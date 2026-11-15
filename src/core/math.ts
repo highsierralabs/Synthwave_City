@@ -17,7 +17,10 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
 /** v wrapped into [0, period). */
 export function wrap(v: number, period: number): number {
   const r = v % period;
-  return r < 0 ? r + period : r;
+  if (r >= 0) return r;
+  // A tiny negative remainder plus the period rounds to the period itself; that is 0 on the circle.
+  const s = r + period;
+  return s >= period ? 0 : s;
 }
 
 /** Shortest signed difference a - b on a circle of the given period: in [-period/2, period/2). */

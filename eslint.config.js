@@ -68,7 +68,7 @@ export default tseslint.config(
   },
   {
     files: ['src/audio/**/*.ts', 'src/camera/**/*.ts'],
-    rules: restrict([post, three('audio and camera do not use three.'), folders(['engine', 'post', 'layers', 'app'], 'Import only contracts and core here.')]),
+    rules: restrict([post, three('audio and camera do not use three.'), folders(['engine', 'city', 'post', 'layers', 'app'], 'Import only contracts and core here.')]),
   },
   {
     files: ['src/post/**/*.ts'],

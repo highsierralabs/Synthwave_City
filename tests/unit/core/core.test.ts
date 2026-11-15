@@ -10,6 +10,9 @@ describe('math', () => {
     expect(wrap(TILE, TILE)).toBe(0);
     expect(wrap(TILE * 3 + 5, TILE)).toBe(5);
     expect(wrap(-TILE * 2 - 5, TILE)).toBe(TILE - 5);
+    // A tiny negative value must not round up to the period itself.
+    expect(wrap(-1e-13, TILE)).toBe(0);
+    expect(wrap(-1e-13, TILE)).toBeLessThan(TILE);
   });
 
   it('wrapDelta is the shortest signed difference, like sc_wrap in GLSL', () => {
