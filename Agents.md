@@ -370,6 +370,9 @@ Status lives only in the plan's frontmatter. Bump `updated` with every change.
    for the orchestrator once the batch has landed.
 8. **Parallel executors do not commit.** The orchestrator commits each task's owned paths when the task
    reports done, so the git index is never contended.
+9. **Executors run on Opus 5.5 at medium effort.** Operator direction, 2026-11-14, for every subagent
+   started from then on. The nine executors for T03 to T11 were already running on the session model
+   when it was given.
 
 ### On completion
 
