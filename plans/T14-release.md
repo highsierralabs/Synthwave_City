@@ -1,7 +1,7 @@
 ---
 id: T14-release
 title: Public release on GitHub and GitHub Pages
-status: in-progress
+status: done
 depends_on: [T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13]
 owns: [LICENSE, THIRD-PARTY-NOTICES.md, CONTRIBUTING.md, .github/**, docs/screenshots/**, plans/T14-release.md]
 reads: [architecture.md, Agents.md, README.md, package.json, plans/**]
@@ -133,13 +133,30 @@ set again, but publication itself cannot be undone: assume anything pushed has b
   `ubuntu-latest` label will move to Ubuntu 26.
 - [x] 2026-11-14 M6, first half: the workspace `CLAUDE.md` now lists the project (table row, the
   instruction-files list, and a Synthwave_City section with commands and gotchas).
-- [ ] Gate 2 public
-- [ ] M5 publish settings
-- [ ] M6 notes
+- [x] 2026-11-14 **Gate 2 released by the operator**, who chose "Make it public (Recommended)" when
+  asked whether to release the step. `git ls-remote origin` read `main` at `bdfaf43`, the local head,
+  immediately before. `gh repo edit --visibility public --accept-visibility-change-consequences`; the
+  API then read `public`.
+- [x] 2026-11-14 M5 publish settings.
+  - Pages: `POST .../pages` with `build_type=workflow` returned
+    `https://highsierralabs.github.io/Synthwave_City/`, HTTPS enforced.
+  - **A8 passes.** Actions run 43682115857 for `bdfaf43`, event `workflow_dispatch`: `build` success,
+    `deploy` success.
+  - **A9 passes.** The public address in Chromium on the GPU (`shots/T14/live.mjs`): HTTP 200, title
+    "Synthwave City", state `title`, seven layers, the `post` pipeline, 59 draw calls, image mean
+    86.3/255, 0 page errors, 0 console errors; `LICENSE` is served beside the page.
+  - **A10 passes,** read back through the API: public; the description "An endless 80s synthwave
+    megacity you fly through in your browser."; the homepage; topics `creative-coding`, `glsl`,
+    `procedural-generation`, `synthwave`, `threejs`, `typescript`, `webgl`; licence detected as MIT; wiki
+    off; on `main`, force pushes and deletions disallowed with admins included; dependency alerts,
+    private vulnerability reporting, secret scanning and push protection on.
+- [x] 2026-11-14 M6 notes: the workspace `CLAUDE.md` entry says the repository is public, and the
+  session memory records that a push to `main` publishes.
 
 ## 8. Surprises and discoveries
 
-None yet.
+- None in the release itself. The repository already existed, private and empty, created by the
+  operator minutes before the request, so no repository was created here.
 
 ## 9. Decision log
 
@@ -156,4 +173,13 @@ None.
 
 ## 11. Outcomes and retrospective
 
-Not yet written.
+Done. `highsierralabs/Synthwave_City` is public and MIT-licensed, and the city is served at
+`https://highsierralabs.github.io/Synthwave_City/` by a workflow that runs on every push to `main`,
+with the same settings as Midnight Vector. Every acceptance row passed and is recorded above.
+
+Not verified: the public page on any device or browser other than headless Chromium on the build
+machine (H-T14-1 is open); the workflow on a later Ubuntu runner image; Dependabot security updates,
+which are left off as they are on a default repository.
+
+From here on a push to `main` is a publication. The commit that records this section is itself
+pushed, which redeploys the same site.
