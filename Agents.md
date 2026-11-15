@@ -67,8 +67,11 @@ pipeline), `seed`, `rig=1` (use `src/camera`). `shot.mjs` also takes `--frames N
 
 - PowerShell 5.1 has no `&&`: write `A; if ($?) { B }`.
 - In the Bash tool use forward slashes; backslashes in `C:\...` get mangled.
-- A heredoc containing an apostrophe failed in the Bash tool here [O]. Write multi-line files with the
-  file tools.
+- A heredoc with an unbalanced apostrophe fails in the Bash tool here [O]. Write multi-line files with
+  the file tools.
+- The session scratchpad folder is shared by every agent in a session. One agent's backup there was
+  overwritten by a sibling and restored into the wrong layer [O: T04]. Use a subfolder named for your
+  task.
 - Paths resolve case-insensitively on this disk, so a wrong-case import passes here and fails on Linux
   [MV]. Match case exactly.
 
@@ -168,10 +171,12 @@ In `update` and anything else called per frame: no `new`, no `clone()`, no closu
 - Take derivatives before any branch that depends on per-pixel data, and do not `return` or `discard`
   under a non-uniform condition above derivative-dependent code. On D3D11 that drew outlines around
   cells, which SwiftShader did not show [MV].
-- **Clamp interpolated values before `pow`, `sqrt` or a division.** Under MSAA (the `high` tier) a
+- `patch` is a reserved word in this GLSL compiler; do not use it as a name [O: T03, T04].
+- **Clamp interpolated values before `pow`, `sqrt`, `exp` or a division.** Under MSAA (the `high` tier) a
   varying is extrapolated outside its triangle at edge samples, so a radius that is never negative
   at a vertex can be negative in the fragment shader. One NaN from `pow` was smeared by bloom into
-  a black block over half the frame, and only at `q=high` [O: T08].
+  a black block over half the frame, and only at `q=high` [O: T08]. T05 and T09 hit the same thing
+  with `exp` and `pow`; `post=0` hides it, so test with the pipeline on.
 - Avoid undefined built-ins: `smoothstep` with `edge0 >= edge1`, `clamp` with min above max, `pow`
   with a negative base, `%` on negative ints [M]. Write `1.0 - smoothstep(a, b, x)` with `a < b`.
 - Use `highp` for coordinates and time. This desktop reports 23 bits for `mediump`, so precision bugs
