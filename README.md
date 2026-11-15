@@ -2,6 +2,13 @@
 
 An endless 80s-synthwave megacity you fly through in the browser.
 
+**Play it:** https://highsierralabs.github.io/Synthwave_City/
+
+| | |
+|---|---|
+| ![The skyline at sunset, with beams, megatowers and the striped sun](docs/screenshots/skyline.png) | ![Street level: traffic, shop fronts and wet asphalt](docs/screenshots/street.png) |
+| ![A plaza with a rotating wire hologram and a beacon pillar](docs/screenshots/plaza.png) | ![Among the rooftops, with flying traffic and ring signs](docs/screenshots/rooftops.png) |
+
 Neon towers with lit windows and glowing edges. Rivers of flying traffic stacked between them.
 Searchlights, beacon pillars and laser fans shimmering in the haze. Holographic billboards hanging in
 the air. Streets full of headlights and tail lights, mirrored in wet asphalt. A striped sun that never
@@ -100,4 +107,19 @@ different stack, with a different world model and a different look.
 
 ## What has and has not been tested
 
-See the last section of [plans/T13-art-pass.md](plans/T13-art-pass.md) for the record.
+It was built and measured on one machine: an RTX 4070 SUPER on Windows, in Chromium. There it holds
+its frame budget at 2560x1440 with room to spare, and the automated checks (unit tests, a smoke run
+of the built site, a scripted pass over every control) pass. The author has played it there. It has
+not been tried on other GPUs, on phones, or in Firefox or Safari; the Low and Medium detail levels
+exist for slower machines but have only been run on the fast one. The full record, including the
+list of things only a person can judge, is the last section of
+[plans/T13-art-pass.md](plans/T13-art-pass.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Please open an issue before writing code.
+
+## License
+
+[MIT](LICENSE). The built site contains three.js and postprocessing; their licences are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

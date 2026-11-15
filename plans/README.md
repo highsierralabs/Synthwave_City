@@ -19,8 +19,9 @@ One plan per task in `architecture.md` §12. The rules for writing and keeping p
 | [T11-camera](T11-camera.md) | Free flight, collision response, tour, viewpoints, input | T00, T01 |
 | [T12-app-shell](T12-app-shell.md) | The shipped page: boot, menu, HUD, settings | all above |
 | [T13-art-pass](T13-art-pass.md) | Cross-layer balance, performance, final acceptance | all above |
+| [T14-release](T14-release.md) | Licence, notices, GitHub repository and GitHub Pages | all above |
 
-Order: `T00 -> T01, T02 -> T03 .. T11 in parallel -> T12 -> T13`.
+Order: `T00 -> T01, T02 -> T03 .. T11 in parallel -> T12 -> T13 -> T14`.
 
 Every layer plan shares the same working loop, so it is stated once here:
 

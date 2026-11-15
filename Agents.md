@@ -61,7 +61,7 @@ pipeline), `seed`, `rig=1` (use `src/camera`). `shot.mjs` also takes `--frames N
   `postprocessing`.
 - Run `npm audit fix --force`, or `npx playwright install` as a side effect [MV].
 - Add an asset file (image, model, font, sound). Everything is generated (R2).
-- Push, publish or change git history. Commits are local unless the operator says otherwise.
+- Push without the operator asking, or change git history. A push to `main` publishes the site.
 
 ### Windows
 
@@ -417,12 +417,18 @@ screenshot on the RTX says nothing about a phone, and "it renders" is not "it lo
 
 ## Git
 
-- Local repository, branch `main`, no remote. Commit small and often with a plain message saying what
-  changed; one commit per finished milestone or task is the norm.
+- Branch `main`, remote `origin` at `https://github.com/highsierralabs/Synthwave_City`. A push to `main`
+  runs `.github/workflows/pages.yml`, which builds `dist/` and, when the repository is public, deploys
+  it to GitHub Pages at `https://highsierralabs.github.io/Synthwave_City/`. **A push publishes.** Check
+  what a commit contains (no user-home paths, host names, addresses or secrets) before pushing, and
+  push only when the operator asks (plan T14).
+- Commit small and often with a plain message saying what changed; one commit per finished milestone
+  or task is the norm.
 - Commits use the repo-local identity already configured. No AI attribution or co-author trailers.
 - `.gitattributes` pins LF against the machine-wide `core.autocrlf=true`. Leave it.
-- Not tracked: `node_modules/`, `dist/`, `shots/`, `test-results/`.
-- Never push, add a remote, rewrite history or delete a branch without the operator's say-so.
+- Not tracked: `node_modules/`, `dist/`, `shots/`, `test-results/`. `docs/screenshots/` is tracked: it
+  holds the README pictures, which the build does not include.
+- Never force-push, rewrite history, change the remote or delete a branch.
 
 ## Sources
 

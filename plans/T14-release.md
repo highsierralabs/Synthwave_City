@@ -1,0 +1,141 @@
+---
+id: T14-release
+title: Public release on GitHub and GitHub Pages
+status: in-progress
+depends_on: [T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13]
+owns: [LICENSE, THIRD-PARTY-NOTICES.md, CONTRIBUTING.md, .github/**, docs/screenshots/**, plans/T14-release.md]
+reads: [architecture.md, Agents.md, README.md, package.json, plans/**]
+updated: 2026-11-14
+---
+
+# T14: release
+
+## 1. Purpose
+
+Put Synthwave City on GitHub at `highsierralabs/Synthwave_City`, set up the way Midnight Vector is:
+MIT-licensed source, and the built site served by GitHub Pages at
+`https://highsierralabs.github.io/Synthwave_City/` from a workflow that runs on every push to `main`.
+After this task anyone with the link can open the city in a browser.
+
+## 2. Context and orientation
+
+The operator asked for this on 2026-11-14: "I want to set this up on my highsierralabs github at
+https://github.com/highsierralabs/Synthwave_City like we have Midnight_Vector setup. Same MIT license."
+
+Facts read before any change:
+
+- `highsierralabs/Synthwave_City` exists, created by the operator on 2026-11-15T05:28Z, **private** and
+  empty. `gh` is signed in as `highsierralabs` with `repo` and `workflow` scopes.
+- `highsierralabs/Midnight_Vector` is public, MIT, with Pages built by a workflow
+  (`build_type: workflow`), force pushes and deletions disallowed on `main`, seven topics, a
+  description and a homepage. Its release ran in two gates: push while private, then the operator
+  released the switch to public.
+- On the free plan, Pages serves only public repositories and branch protection needs a public
+  repository, so nothing is served and `main` cannot be protected until the repository is public.
+- This repository has 28 local commits, all authored by the repo-local identity (the operator's
+  GitHub noreply address), no remote.
+
+## 3. Scope
+
+Owned: the licence, notices, contributing file, the workflow, README screenshots, this plan.
+
+Changes outside `owns`, each through its owner:
+
+| Path | Owner | Change |
+|---|---|---|
+| `package.json`, `package-lock.json` | T00 | `license`, `homepage`, `repository`; the lockfile root entry gains the licence. `"private": true` stays: it concerns the npm registry, not the repository |
+| `README.md` | T12 | play link, screenshots, licence section, what has been tested |
+| `Agents.md`, `architecture.md`, `plans/README.md` | orchestrator | Git section; task row; index row |
+
+Outside the repository: GitHub settings; the workspace `CLAUDE.md` above this folder, which the
+operator asked to have this project added to.
+
+Non-goals: any change to the app; a custom domain; releases or tags.
+
+## 4. Plan of work
+
+**M1. Audit.** Search every tracked file for user-home paths, host names, tailnet addresses, e-mail
+addresses and secrets; confirm every commit author; confirm nothing large or binary is tracked by
+accident.
+
+**M2. Release files.** `LICENSE` (MIT, the same holder and year as Midnight Vector),
+`THIRD-PARTY-NOTICES.md` (the licence texts of three and postprocessing, copied from the installed
+packages), `CONTRIBUTING.md`, `.github/workflows/pages.yml` (the Midnight Vector workflow: pinned
+action commits, Node 24.14.1, `npm ci`, `npm run build`, licence files copied into `dist/`, deploy
+job skipped while the repository is private), package metadata, README, screenshots taken from the
+build.
+
+**M3. Local checks.** `npm run check`, `npm run build`, `npm run smoke`; then a fresh clone of the
+local repository builds with `npm ci` and `npm run build`, proving the tracked files are sufficient.
+
+**Gate 1. Push.** Add `origin`, push `main` to the private repository. Authorised by the request
+quoted above.
+
+**M4. Remote build.** The workflow's `build` job passes on GitHub; `deploy` is skipped because the
+repository is private.
+
+**Gate 2. Public.** Switching the repository to public publishes the source and, once Pages is on,
+the site. It cannot be taken back in any practical sense. This step waits for the operator's
+explicit release.
+
+**M5. Publish settings**, after Gate 2: visibility public; Pages enabled with the workflow as its
+source; workflow run; description, homepage and topics; `main` protected against force pushes and
+deletion; dependency alerts, private vulnerability reporting, secret scanning and push protection.
+Each is read back through the API.
+
+**M6. Notes.** Workspace `CLAUDE.md` gains this project; the session memory records the release.
+
+## 5. Validation and acceptance
+
+| Id | Check | Expected |
+|---|---|---|
+| A1 | The audit of M1 | no user-home path, host name, address or secret in a tracked file; one author |
+| A2 | `npm run check` | exit 0 |
+| A3 | `npm run build`, `npm run smoke` | exit 0, SMOKE OK |
+| A4 | Fresh clone: `npm ci`, `npm run build` | exit 0 |
+| A5 | Licence texts in `THIRD-PARTY-NOTICES.md` | byte-equal to `node_modules/three/LICENSE` and `node_modules/postprocessing/LICENSE.md` |
+| A6 | After Gate 1: `git ls-remote origin` | one ref, `main`, at the local head |
+| A7 | The workflow run for that commit | `build` succeeds |
+| A8 | After Gate 2: visibility, Pages API, workflow run | `public`; `build_type` `workflow`; `build` and `deploy` succeed |
+| A9 | `https://highsierralabs.github.io/Synthwave_City/` in Chromium | boots to the title, no console errors, a non-empty frame |
+| A10 | Settings read back | description, homepage, topics; force pushes and deletions disallowed on `main`; security features on |
+
+Human checks: H-T14-1, the operator opens the public link on a device of their own.
+
+## 6. Idempotence and recovery
+
+Everything before Gate 1 is local and can be redone. A push to a private repository can be followed
+by further pushes; history is never rewritten. After Gate 2 the settings can each be read back and
+set again, but publication itself cannot be undone: assume anything pushed has been copied.
+
+## 7. Progress
+
+- [ ] M1 audit
+- [ ] M2 release files
+- [ ] M3 local checks
+- [ ] Gate 1 push
+- [ ] M4 remote build
+- [ ] Gate 2 public
+- [ ] M5 publish settings
+- [ ] M6 notes
+
+## 8. Surprises and discoveries
+
+None yet.
+
+## 9. Decision log
+
+- 2026-11-14: Published from the source repository, as Midnight Vector is, not from a build-only
+  repository. Plans, Agents.md and architecture.md are part of what is published.
+- 2026-11-14: Two gates, as in the Midnight Vector release. The push to a private repository is covered
+  by the request; the switch to public is a separate, irreversible act and gets its own release.
+- 2026-11-14: README screenshots are tracked under `docs/screenshots/`. They are documentation, not
+  assets of the app: the build does not include them (R2 is about what the app loads).
+
+## 10. Contract change requests
+
+None.
+
+## 11. Outcomes and retrospective
+
+Not yet written.

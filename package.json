@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "An endless 80s synthwave megacity you fly through in the browser. No asset files.",
+  "license": "MIT",
+  "homepage": "https://highsierralabs.github.io/Synthwave_City/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/highsierralabs/Synthwave_City.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=24.14.1 <25"

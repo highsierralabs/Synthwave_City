@@ -468,11 +468,12 @@ without reading any other task's code.
 | T11 | `T11-camera` | `src/camera/**`, `tests/unit/camera/**` | T00, T01 |
 | T12 | `T12-app-shell` | `index.html`, `src/main.ts`, `src/app/**`, `tests/unit/app/**`, `README.md` | all above |
 | T13 | `T13-art-pass` | no paths of its own; a serial window in which it may retune numbers anywhere and log each change | all above |
+| T14 | `T14-release` | `LICENSE`, `THIRD-PARTY-NOTICES.md`, `CONTRIBUTING.md`, `.github/**`, `docs/screenshots/**` | all above |
 
 Every task also owns its own plan file.
 
 ```
-T00 -> T01, T02 -> T03 .. T11 (in parallel) -> T12 -> T13
+T00 -> T01, T02 -> T03 .. T11 (in parallel) -> T12 -> T13 -> T14
 ```
 
 T03 to T11 touch disjoint folders and share only frozen contracts, so they can be built at the same
