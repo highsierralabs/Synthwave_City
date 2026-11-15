@@ -255,8 +255,15 @@ Only `src/post` uses this library.
   says NVIDIA and not SwiftShader before believing a frame time.
 - `recordVideo` does not run here (wrong cached ffmpeg) [MV]. For motion, take a frame sequence with
   `--t` stepping.
-- Headless rAF is not a 60 Hz display [MV]. Measure frame time with the engine's own timer under
-  `smoke.mjs`, and treat it as a regression signal, not a promise about a real monitor.
+- Headless rAF follows this machine's 144 Hz display [O]. `smoke.mjs` records every frame interval
+  with vsync on and holds the 99th percentile to the budget; treat it as a regression signal, not a
+  promise about another monitor.
+- **Never judge smoothness with vsync off.** With `--disable-gpu-vsync --disable-frame-rate-limit` the
+  full city showed a 35 to 70 ms stall every 200 ms and the adaptive scale fell to 0.7; with vsync on
+  the same tour had a worst frame of 12 ms and no stall [O]. `perf.mjs` runs uncapped only to compare
+  the average cost of layers.
+- Other agents' Playwright runs and CPU-heavy jobs on the same machine inflate frame times; a smoke
+  run taken while siblings were working read 14 to 21 ms and was wrong [O]. Measure when idle.
 - Keep review screenshots at or under 1920 px wide so they are viewed unscaled [MV].
 
 ## Browser robustness

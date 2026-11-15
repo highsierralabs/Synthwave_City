@@ -23,7 +23,7 @@ describe('AdaptiveScale', () => {
 
   it('steps down under load, to the floor and no further', () => {
     const a = new AdaptiveScale({ min: 0.6, max: 1 });
-    run(a, 3, () => 30);
+    run(a, 6, () => 30);
     expect(a.scale).toBeLessThan(1);
     run(a, 60, () => 30);
     expect(a.scale).toBeCloseTo(0.6, 6);
@@ -31,7 +31,7 @@ describe('AdaptiveScale', () => {
 
   it('steps back up when there is headroom', () => {
     const a = new AdaptiveScale({ min: 0.5, max: 1 });
-    run(a, 5, () => 30);
+    run(a, 8, () => 30);
     const low = a.scale;
     expect(low).toBeLessThan(1);
     run(a, 120, () => 16.7);
@@ -50,6 +50,14 @@ describe('AdaptiveScale', () => {
     expect(first).toBeLessThanOrEqual(12);
     expect(later / 4).toBeLessThan(Math.max(1, first));
     expect(a.scale).toBeGreaterThanOrEqual(0.7 - 1e-9);
+  });
+
+  it('ignores the start-up hitches', () => {
+    const a = new AdaptiveScale({ min: 0.5, max: 1 });
+    expect(run(a, 2.5, () => 120)).toBe(0);
+    expect(a.scale).toBe(1);
+    expect(run(a, 20, () => 16.7)).toBe(0);
+    expect(a.scale).toBe(1);
   });
 
   it('ignores frozen time and nonsense input', () => {

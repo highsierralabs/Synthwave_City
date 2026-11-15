@@ -4,6 +4,9 @@
 // directly. The scale therefore steps down quickly when frames run long, and only tries a step up
 // after a calm spell; a step up that fails is remembered, and the next attempt waits longer.
 
+/** Seconds after start during which frame times are ignored. */
+export const START_GRACE = 3;
+
 export interface AdaptiveOptions {
   min: number;
   max: number;
@@ -24,6 +27,7 @@ export class AdaptiveScale {
   private cooldown = 0;
   private sinceStepUp = Infinity;
   private retryAfter = 6;
+  private age = 0;
 
   constructor(options: AdaptiveOptions) {
     this.min = options.min;
@@ -36,6 +40,9 @@ export class AdaptiveScale {
   /** frameMs: time the last frame took. dt: seconds since the last call. Returns true when scale changed. */
   update(frameMs: number, dt: number): boolean {
     if (!(dt > 0) || !(frameMs > 0)) return false;
+    // The first seconds are full of shader compiles and uploads; they say nothing about steady cost.
+    this.age += dt;
+    if (this.age < START_GRACE) return false;
     this.ema = this.ema === 0 ? frameMs : this.ema + (frameMs - this.ema) * Math.min(1, dt * 4);
     this.sinceStepUp += dt;
     if (this.cooldown > 0) {
