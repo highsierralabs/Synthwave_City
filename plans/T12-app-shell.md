@@ -155,6 +155,10 @@ Evidence:
       screenshots viewed            -> fs-phone-menu.png, fs-nofs-menu.png, fs-phone-running.png,
                                        fs-icon-enter.png, fs-icon-leave.png (3x crops)
 
+- [x] 2026-11-15 H-T12-4, operator report after trying the built site over the tailnet on their phone
+  and tablet: "Full-screen works". Which devices and browsers, and whether the iPhone route (H-T12-5)
+  was tried, was not stated.
+
 ## 9. Surprises and discoveries
 
 - The first smoke runs read 14 to 21 ms a frame and 8 to 12 ms of CPU. Two causes, neither in the app:
