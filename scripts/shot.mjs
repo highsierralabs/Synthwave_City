@@ -15,6 +15,10 @@
 //   --wait    extra milliseconds to wait before the first capture (default 400).
 //
 // Needs the dev server: npm run dev. Exits non-zero if the page reports an error.
+//
+// The dev server reloads the page when a file it imports changes, which happens while other tasks
+// are editing. A capture that straddles a reload is detected (the page's load time changes) and the
+// whole shot is retried, up to three times.
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { launch, parseArgs, serverUp } from './lib/browser.mjs';
@@ -42,59 +46,92 @@ const t0 = Number(args.t0 ?? (urlT ? urlT[1] : 10));
 const out = resolve(String(args.out));
 mkdirSync(dirname(out), { recursive: true });
 
-const browser = await launch(String(args.mode ?? 'gpu'));
-const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-const consoleErrors = [];
-const consoleWarnings = [];
-page.on('console', (msg) => {
-  if (msg.type() === 'error') consoleErrors.push(msg.text());
-  else if (msg.type() === 'warning') consoleWarnings.push(msg.text());
-});
-page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
+class Reloaded extends Error {}
+const RELOAD_SIGNS = /Execution context was destroyed|navigation|reading 'info'|reading 'engine'|Target page, context or browser has been closed/i;
 
-let failed = false;
-try {
-  await page.goto(base + url, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction(() => window.__SC_READY === true, null, { timeout: 90000 });
-  await page.waitForTimeout(Number(args.wait ?? 400));
-  const hasApi = await page.evaluate(() => typeof window.__sc === 'object');
-  for (let i = 0; i < frames; i++) {
-    let stats = null;
+/** One complete attempt. Returns { lines, failed } or throws Reloaded. */
+async function attempt(browser) {
+  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  const consoleErrors = [];
+  const consoleWarnings = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+    else if (msg.type() === 'warning') consoleWarnings.push(msg.text());
+  });
+  page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
+  const lines = [];
+  try {
+    await page.goto(base + url, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForFunction(() => window.__SC_READY === true, null, { timeout: 90000 });
+    await page.waitForTimeout(Number(args.wait ?? 400));
+    const loadedAt = await page.evaluate(() => performance.timeOrigin);
+    const stillSamePage = async () => {
+      const now = await page.evaluate(() => (window.__SC_READY === true ? performance.timeOrigin : -1));
+      if (now !== loadedAt) throw new Reloaded('the page reloaded during the shot');
+    };
+    const hasApi = await page.evaluate(() => typeof window.__sc === 'object');
+    for (let i = 0; i < frames; i++) {
+      let stats = null;
+      if (hasApi) {
+        stats = await page.evaluate(({ i, t0, dt, move, turn, sequence }) => {
+          const sc = window.__sc;
+          const p = sc.engine.pose;
+          if (sequence) sc.freeze(t0 + i * dt);
+          if (i > 0 && move) sc.setCam(p.x + move[0], p.y + move[1], p.z + move[2], p.yaw + turn, p.pitch);
+          else if (i > 0 && turn) sc.setCam(p.x, p.y, p.z, p.yaw + turn, p.pitch);
+          return sc.measure();
+        }, { i, t0, dt, move, turn, sequence: frames > 1 });
+        await page.waitForTimeout(80);
+      }
+      const file = frames > 1 ? out.replace(/\.png$/i, `_${i}.png`) : out;
+      await page.screenshot({ path: file });
+      await stillSamePage();
+      const s = stats ? `mean ${stats.mean.toFixed(1)}/255  clipped ${(stats.clipped * 100).toFixed(2)}%  black ${(stats.black * 100).toFixed(1)}%` : '';
+      lines.push(`wrote ${file}  ${s}`);
+    }
     if (hasApi) {
-      stats = await page.evaluate(({ i, t0, dt, move, turn, sequence }) => {
-        const sc = window.__sc;
-        const p = sc.engine.pose;
-        if (sequence) sc.freeze(t0 + i * dt);
-        if (i > 0 && move) sc.setCam(p.x + move[0], p.y + move[1], p.z + move[2], p.yaw + turn, p.pitch);
-        else if (i > 0 && turn) sc.setCam(p.x, p.y, p.z, p.yaw + turn, p.pitch);
-        return sc.measure();
-      }, { i, t0, dt, move, turn, sequence: frames > 1 });
-      await page.waitForTimeout(80);
+      const info = await page.evaluate(() => window.__sc.info());
+      lines.push(`renderer: ${info.renderer}`);
+      lines.push(`layers: ${info.layers.join(', ') || '(none)'}   pipeline: ${info.pipeline}   boxes ${info.boxes}  lanes ${info.lanes}  sites ${info.sites}  plan ${info.planMs} ms`);
+      lines.push(`draw calls ${info.drawCalls}   triangles ${info.triangles}   fps ${info.fps}   cpu ${info.cpuMs} ms   scale ${info.renderScale}`);
+      if (!/NVIDIA|AMD|Radeon|Intel|Apple/i.test(String(info.renderer)) && (args.mode ?? 'gpu') === 'gpu') {
+        lines.push('WARNING: the renderer string does not name a hardware GPU; frame times mean nothing.');
+      }
     }
-    const file = frames > 1 ? out.replace(/\.png$/i, `_${i}.png`) : out;
-    await page.screenshot({ path: file });
-    const s = stats ? `mean ${stats.mean.toFixed(1)}/255  clipped ${(stats.clipped * 100).toFixed(2)}%  black ${(stats.black * 100).toFixed(1)}%` : '';
-    console.log(`wrote ${file}  ${s}`);
+    const pageErrors = await page.evaluate(() => window.__SC_ERRORS ?? []);
+    await stillSamePage();
+    for (const e of pageErrors) lines.push(`PAGE ERROR: ${e}`);
+    for (const e of consoleErrors) lines.push(`CONSOLE ERROR: ${e}`);
+    for (const e of consoleWarnings.slice(0, 12)) lines.push(`console warning: ${e.slice(0, 400)}`);
+    return { lines, failed: pageErrors.length > 0 || consoleErrors.length > 0 };
+  } catch (error) {
+    if (error instanceof Reloaded || RELOAD_SIGNS.test(String(error.message))) throw new Reloaded(error.message);
+    lines.push(`shot failed: ${error.message}`);
+    for (const e of consoleErrors) lines.push(`CONSOLE ERROR: ${e}`);
+    return { lines, failed: true };
+  } finally {
+    await page.close().catch(() => {});
   }
-  if (hasApi) {
-    const info = await page.evaluate(() => window.__sc.info());
-    console.log(`renderer: ${info.renderer}`);
-    console.log(`layers: ${info.layers.join(', ') || '(none)'}   pipeline: ${info.pipeline}   boxes ${info.boxes}  lanes ${info.lanes}  sites ${info.sites}  plan ${info.planMs} ms`);
-    console.log(`draw calls ${info.drawCalls}   triangles ${info.triangles}   fps ${info.fps}   cpu ${info.cpuMs} ms   scale ${info.renderScale}`);
-    if (!/NVIDIA|AMD|Radeon|Intel|Apple/i.test(String(info.renderer)) && (args.mode ?? 'gpu') === 'gpu') {
-      console.log('WARNING: the renderer string does not name a hardware GPU; frame times mean nothing.');
+}
+
+const browser = await launch(String(args.mode ?? 'gpu'));
+let result = null;
+try {
+  for (let tries = 1; tries <= 3 && !result; tries++) {
+    try {
+      result = await attempt(browser);
+    } catch (error) {
+      if (!(error instanceof Reloaded)) throw error;
+      console.log(`retrying (${tries}/3): ${error.message.split('\n')[0]}`);
+      await new Promise((r) => setTimeout(r, 1500));
     }
   }
-  const pageErrors = await page.evaluate(() => window.__SC_ERRORS ?? []);
-  for (const e of pageErrors) console.log(`PAGE ERROR: ${e}`);
-  for (const e of consoleErrors) console.log(`CONSOLE ERROR: ${e}`);
-  for (const e of consoleWarnings.slice(0, 12)) console.log(`console warning: ${e.slice(0, 400)}`);
-  if (pageErrors.length > 0 || consoleErrors.length > 0) failed = true;
-} catch (error) {
-  console.error(`shot failed: ${error.message}`);
-  for (const e of consoleErrors) console.log(`CONSOLE ERROR: ${e}`);
-  failed = true;
 } finally {
   await browser.close();
 }
-process.exit(failed ? 1 : 0);
+if (!result) {
+  console.error('shot failed: the page kept reloading; another task is probably saving files. Try again.');
+  process.exit(1);
+}
+for (const line of result.lines) console.log(line);
+process.exit(result.failed ? 1 : 0);
