@@ -90,6 +90,12 @@ export interface Engine {
   dispose(): void;
 }
 
+function hashText(text: string): number {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0;
+  return h;
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -174,7 +180,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     const layer = candidates[i]!;
     progress(0.1 + (0.75 * i) / candidates.length, `Building ${layer.id}`);
     try {
-      await layer.init({ scene, renderer, camera, plan, uniforms, quality, seed: hashInts(seed, i + 1) });
+      // Seeded by id, not by position in the list, so a layer looks the same whatever else is mounted.
+      await layer.init({ scene, renderer, camera, plan, uniforms, quality, seed: hashInts(seed, hashText(layer.id)) });
       layers.push(layer);
       layerIds.push(layer.id);
     } catch (error) {

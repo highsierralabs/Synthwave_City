@@ -44,7 +44,8 @@ export function computeViews(plan: CityPlan): Record<string, View> {
     // Roof height, looking across the skyline.
     roof: { x: ax, y: Math.max(140, downtown.height * 0.55), z: downtown.z + 260, yaw: 0.55, pitch: -0.12 },
     // Beside a plaza.
-    plaza: { x: plaza.x + 150, y: 55, z: plaza.z + 150, yaw: yawTowards(plaza.x + 150, plaza.z + 150, plaza.x, plaza.z), pitch: -0.2 },
+    // From the street corner, so no neighbouring building is in the way.
+    plaza: { x: plaza.x + CELL / 2, y: 26, z: plaza.z + CELL / 2, yaw: yawTowards(plaza.x + CELL / 2, plaza.z + CELL / 2, plaza.x, plaza.z), pitch: 0.2 },
     // Looking up at the tallest megatower from an avenue.
     mega: { x: megaAx, y: 160, z: mega.z + 620, yaw: yawTowards(megaAx, mega.z + 620, mega.x, mega.z), pitch: 0.28 },
     // Straight down.

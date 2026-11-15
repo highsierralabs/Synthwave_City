@@ -168,6 +168,10 @@ In `update` and anything else called per frame: no `new`, no `clone()`, no closu
 - Take derivatives before any branch that depends on per-pixel data, and do not `return` or `discard`
   under a non-uniform condition above derivative-dependent code. On D3D11 that drew outlines around
   cells, which SwiftShader did not show [MV].
+- **Clamp interpolated values before `pow`, `sqrt` or a division.** Under MSAA (the `high` tier) a
+  varying is extrapolated outside its triangle at edge samples, so a radius that is never negative
+  at a vertex can be negative in the fragment shader. One NaN from `pow` was smeared by bloom into
+  a black block over half the frame, and only at `q=high` [O: T08].
 - Avoid undefined built-ins: `smoothstep` with `edge0 >= edge1`, `clamp` with min above max, `pow`
   with a negative base, `%` on negative ints [M]. Write `1.0 - smoothstep(a, b, x)` with `a < b`.
 - Use `highp` for coordinates and time. This desktop reports 23 bits for `mediump`, so precision bugs
