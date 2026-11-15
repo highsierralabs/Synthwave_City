@@ -1,7 +1,7 @@
 ---
 id: T09-holograms
 title: Floating holographic billboards
-status: ready
+status: done
 depends_on: [T00, T01, T02]
 owns: [src/layers/holograms/**, tests/unit/holograms/**, plans/T09-holograms.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**, plans/README.md]
@@ -96,20 +96,94 @@ Stateless. The atlas is rebuilt on every page load.
 
 ## 8. Progress
 
-- [ ] M1 atlas
-- [ ] M2 panels
-- [ ] M3 presentation
-- [ ] M4 wire holograms
-- [ ] M5 tickers
-- [ ] M6 balance and distance
+- [x] M1 atlas (2026-11-14). `layout.ts` (pure cell layout), `atlas.ts` (16 wide ads, 8 tall ads,
+  4 ticker strips, drawn as three inks), dump behind `?holoAtlas=1|top|bottom|raw`. Looked at
+  `shots/T09/atlas_top.png` and `atlas_bottom.png`.
+- [x] M2 panels (2026-11-14). `pack.ts` + `PANEL_VERT/FRAG` in `shaders.ts`: scanlines, rolling bar,
+  flicker, glitch bands, fringe, frame, brackets, grazing and near fades.
+- [x] M3 presentation (2026-11-14). Bob, sway, lean; wipe between two ads on 55% of panels; projector
+  lamp and fan of light under every panel, in the same draw call.
+- [x] M4 wire holograms (2026-11-14). `wire.ts` bakes six shapes into one mesh; `WIRE_VERT/FRAG`.
+- [x] M5 tickers (2026-11-14). `TICKER_VERT/FRAG`: text runs round the ring, LED dots near, halo far.
+- [x] M6 balance and distance (2026-11-14). Gains set against the real `sky`, `ground` and
+  `buildings` layers; far lift for panels; scanline fade tightened; tiers `low`/`medium` and moods
+  `midnight`/`miami` looked at; magnified three-frame shimmer check.
+- [x] Unit tests (2026-11-14): `tests/unit/holograms/{layout,pack,wire}.test.ts`, 26 tests, each
+  group shown failing once under a deliberate mutation before passing.
+- [x] Acceptance run and Outcomes written (2026-11-14). Nothing is left open in this plan's paths.
 
 ## 9. Surprises and discoveries
 
-None yet.
+- **`pow` of an extrapolated varying blacked out the whole frame.** The first `canyon` shot with the
+  pipeline on was one large black rectangle, and `high` was black edge to edge; the same URLs with
+  `post=0` were fine. Cause: `pow(1.0 - t, 2.2)` in the projector fan, with `t` a 0..1 varying. Under
+  MSAA a varying can be extrapolated past the triangle, the base goes negative, `pow` returns NaN, and
+  bloom spreads one NaN pixel over the frame. Fixed by clamping `t` (both the fan and the wire cone).
+  An 8-bit canvas hides this, so `post=0` is not a safe place to judge an additive shader.
+- **Timing a GPU-backed 2D canvas measures nothing.** `performance.now()` round `drawAtlas` read 4 ms
+  on one load and 69 ms on another, because Chromium records the calls and rasterises later. Forcing
+  the work with a one-pixel `getImageData` gave 122 to 550 ms over five loads (the 550 was the first
+  page of a fresh browser). With `getContext('2d', { willReadFrequently: true })` the canvas stays on
+  the CPU, drawing is synchronous, and six loads gave 63 to 75 ms, the first included.
+- **Additive panels lose to lit megatower screens.** A panel or ticker in front of one of T05's big
+  facade screens (themselves L1 to L2 over a large area) washes out: `shots/T09/seq_4.png`,
+  `ticker_a.png`. Against sky, roofs or ordinary facades the same panel reads well. Ticker text is
+  pushed towards white-hot for this reason; panels are not, because that whites them out over sky.
+- **Few panel sites downtown.** Of 817 `holoPanel` sites, 560 are roof billboards, which the plan
+  places only on buildings up to 130 m. A 1.6 km square round the `downtown` landmark holds 30 panels
+  (11.7 per km2 against 19.9 overall), 9 of them above y = 200. So `canyon`, `roof` and `high` each
+  show only one to three panels, while views over lowrise (`at300.png`, `lowrise.png`) are full of
+  them. The sites are T01's; see Outcomes.
+- **The `plaza` view looks at a wall.** `dev/views.ts` puts that camera 150 m diagonally from the
+  plaza at y = 55, which is beside a tower in the next block (`shots/T09/plaza.png`). The plaza
+  evidence here uses explicit cameras instead (`plaza_above.png`, `w_*.png`).
+- **Sibling saves reload the page mid-capture.** `shot.mjs` sequences failed twice with "Execution
+  context was destroyed" or "the page kept reloading", and a syntax error in `shots/T10/harness.js`
+  put Vite's error overlay across two of this task's screenshots. Retrying was enough.
+- **`holoObject` sites and the ground's plaza rings are not concentric.** In
+  `shots/T09/disc_with.png` the projector ring, which sits at the site position, is about 4 m from
+  the centre of T04's plaza rings. Inferred cause, not checked in T04's code: the site is at the
+  cell centre and the plaza art at the block centre, which differ when one side is an avenue.
 
 ## 10. Decision log
 
-None yet.
+All 2026-11-14.
+
+- **The atlas holds inks, not colours.** Red is the panel's first palette colour, green its second,
+  blue white-hot; the shader mixes them with `uPalette`. The plan said to bake the colours in. Reason:
+  one advert then appears in many colourways (24 ads look like far more), and a mood that re-tints
+  the palette re-tints the billboards, which architecture.md 5.1 asks of every layer. The dump
+  re-colours the inks so it can still be reviewed by eye.
+- **Ads read from both sides.** The panel's u is flipped for a viewer behind it. The plan allows a
+  mirrored back; half of all panels would then be mirrored from any one direction, and H-T09-1 is
+  that the ads are fun to read. The back is dimmed to 82% so the two sides still differ.
+- **Fog dims holograms; it is not mixed in.** Agents.md says to run every colour through `sc_fog`.
+  For an additive surface that adds the fog colour on top of an already fogged background, and far
+  panels become pale rectangles. The shaders multiply by `1 - sc_fogAmount` instead.
+- **Three draw calls.** Image, projector fan and lamp are three quads of one instanced geometry; all
+  wire solids, their glow sprites, cones and floor rings are one baked mesh; tickers are one instanced
+  geometry. Measured: 4 calls with `layers=holograms&post=0` against 1 with no layers.
+- **Layout: 16 wide (512 x 256), 8 tall (256 x 512), 4 strips (2048 x 128).** The plan's sites come in
+  two shapes only: 678 with aspect 1.6 to 2.6 and 138 with aspect under 0.8. An ad keeps its shape
+  inside its panel, stretched by at most 12% and letterboxed beyond that.
+- **Six wire shapes, not five:** icosphere, torus, globe with an orbiting ring, banded pyramid with a
+  floating capstone, ring stack, gyroscope. Every object also gets a glow sprite, a cone of light
+  from the plaza floor and a ring on the floor.
+- **Tickers draw a quad twice the site's band height.** The text band is exactly the site's `h`; the
+  rest is a halo that fades to nothing, so a 9 m band on a 1000 m tower is still visible from afar.
+- **Panels are lifted with distance** (image up to 1.7x, veil up to 5x, between 150 m and 1500 m), so
+  a far panel is a card of colour rather than a faint outline.
+- **Scanlines are gone by two pixels per line**, earlier than `sc_detail` would fade them: the box
+  filter alone still beats against the pixel grid near that size.
+- **Density.** Panels are thinned by a hash against `quality.density`; panels 80 m or wider always
+  stay. Tickers never go below 0.6 and wire solids never below 0.5, since there are few of each.
+- **The atlas canvas is CPU-backed** (`willReadFrequently`), for the reason given under Surprises.
+- **Names.** The plan's examples were kept except ZENITH MOTORS, which became ZEPHYRA MOTORS; PULSAR,
+  OKO, REDLINE and "CHANNEL 5" were replaced during the work by KILOVOLT, OKU, CRIMSON and "CHANNEL
+  404" to move away from names that exist. All names are invented, but none was searched against a
+  trademark register.
+- **Glitches run about 6% of the time per panel** (one sixth of a second each); 10% read as broken
+  rather than occasional.
 
 ## 11. Contract change requests
 
@@ -117,4 +191,71 @@ None.
 
 ## 12. Outcomes and retrospective
 
-Not yet written.
+**Result.** The layer `holograms` exists and does what Purpose asks: translucent ad panels with a
+frame, brackets, scanlines, a rolling bar, flicker, glitch bands, fringing and wipes float over
+roofs, across streets and beside megatowers, each over its own projector; six kinds of wireframe
+solid turn over the plazas; text runs round the megatowers. The camera can fly through a panel.
+
+**Evidence** (all from runs in this session, 2026-11-14, RTX 4070 SUPER through ANGLE D3D11):
+
+```
+> npm run check:task -- T09
+typecheck tsconfig.json: 0 error(s) in T09-holograms, 0 elsewhere
+typecheck tsconfig.node.json: 0 error(s) in T09-holograms, 0 elsewhere
+lint: ok (src/layers/holograms, tests/unit/holograms)
+tests: ok (tests/unit/holograms)
+   Test Files  3 passed (3)
+        Tests  26 passed (26)
+PASS T09-holograms
+```
+
+- Mutation runs: overlapping tall cells failed `has no two cells overlapping`; dropping the landmark
+  rule failed two pack tests; dropping every 50th panel failed four; drawing quad diagonals failed
+  `never draws the diagonal of a quad`. Each was reverted and the suite re-run green.
+- Draw calls: `layers=holograms&post=0` reports 4, `layers=none&post=0` reports 1, so 3 in the main
+  pass (budget 6). `update` is empty.
+- Atlas time, logged once per load as `holograms: ad atlas drawn in N ms`: 75, 67, 65, 65, 65, 63 ms
+  over six loads with all four layers mounted (budget 300 ms).
+- `layers=holograms` alone prints no console error and no shader warning.
+
+Screenshots in `shots/T09/`, with `layers=sky,ground,buildings,holograms` unless noted, and what was
+seen in each:
+
+| File | What it shows |
+|---|---|
+| `atlas_top.png`, `atlas_bottom.png` | The dump: 16 wide ads, 8 tall ads, 4 strips; laid out, legible, no cell bleeding into another |
+| `front30.png`, `behind30.png` | 30 m in front of and behind a 34 m avenue panel (ZEPHYRA MOTORS): frame, brackets, scanlines, lamp and fan; the text reads correctly from both sides; city visible through it |
+| `near45.png`, `fly_0.png` to `fly_4.png` | A 90 m panel from 45 m down to 7 m behind it: a wash of light, not a white rectangle; clipped pixels 0.26% at 45 m |
+| `at300.png` | Panels about 300 m off: GRAVBALL FINALS and LUX CAPSULE HOTEL legible, a dozen smaller cards in the sky |
+| `lowrise.png`, `tele_0.png` | Above lowrise: panels as cards of coloured light across the roofs; wordmarks legible in the telephoto |
+| `canyon.png`, `roof.png`, `high.png` | Downtown: one to three panels each (see Surprises), tickers as thin bands on the megatowers |
+| `mega.png`, `ticker_b.png`, `ticker_near.png`, `ticker_far.png` | Ticker rings: text continuous round the corner, LED dots close up, a line of light far away; NOVA COLA beside the tower |
+| `plaza_above.png`, `w_torus.png`, `w_globe.png`, `w_pyramid.png`, `w_rings.png`, `w_gyro.png` | All six wire solids, with cone and floor ring; `disc_with.png` shows the torus mirrored in the wet plaza |
+| `tall_front.png`, `street.png` | A tall banner close up; from the street, a banner across the road and a billboard over a low roof |
+| `wipe_0.png` to `wipe_4.png` | One ad wiping over another with a bright torn edge |
+| `zoom_0.png` to `zoom_2.png` | The rendered frame at 4x, three steps of camera and time: no scanline moire on mid-distance panels |
+| `lowrise_low.png`, `lowrise_medium_midnight.png`, `lowrise_miami.png` | Fewer holograms at `low`; palette follows the mood |
+| `only.png` | Holograms alone on black |
+
+**Gaps and things for other tasks.**
+
+- Downtown is thin on holograms because the plan puts few sites there. Raising the avenue and street
+  chances in `src/city/sites.ts` (0.12 and 0.055 today) or allowing roof billboards above 130 m would
+  fix it; this layer draws one instance per site and cannot add any.
+- Panels and tickers in front of megatower facade screens wash out. That is a balance question
+  between T05 and this layer for T13; the usual fix is to dim large facade screens, not to brighten
+  additive panels further.
+- The `plaza` view in `dev/views.ts` and the 4 m offset between plaza art and `holoObject` sites, both
+  described under Surprises.
+
+**Not verified.**
+
+- H-T09-1 and H-T09-2: whether the ads are fun, and how the text renders with another machine's
+  fonts. Only Chromium on this Windows machine was seen.
+- Frame time. Every shot reported 144 fps, which is the headless cap, not a measurement; the cost of
+  several hundred large additive quads on a weaker GPU is unknown.
+- Shimmer in continuous motion. The check was three magnified frames and a few time sequences, not
+  video.
+- `uMotion` below 1, `dispose()`, a lost and restored WebGL context, and the mood cross-fade were not
+  exercised. `medium` was seen only in `midnight`, `miami` only at `high`.
+- The names were not checked against any trademark register.
