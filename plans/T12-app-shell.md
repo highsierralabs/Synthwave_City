@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11]
 owns: [index.html, src/main.ts, src/app/**, tests/unit/app/**, README.md, plans/T12-app-shell.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**, src/engine/**, src/city/**, src/audio/**, src/camera/**]
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # T12: app shell
@@ -67,6 +67,30 @@ pure load, validate and migrate functions with unit tests (garbage in storage gi
 **M6. README.** What it is, a screenshot-free description, how to run and build, controls, the tech
 stack, how it relates to the demo that inspired it, and what has and has not been tested.
 
+**M7. Full screen (revision, 2026-11-15).** The operator asked: "Add a full screen option for mobile.
+I can F11 on the pc but not my phone or tablet." Work:
+
+- `src/app/fullscreen.ts`: pure helpers over a minimal document shape, so they run under Vitest in
+  `node`. Support is `document.fullscreenEnabled`, else the prefixed `webkitFullscreenEnabled`
+  (Safari on iPad before 16.4). The request goes to `document.documentElement`, not the canvas, so
+  the menu, HUD and toasts stay visible in full screen. The state comes from `fullscreenchange` /
+  `webkitfullscreenchange`, never from our own bookkeeping, because the system back gesture and Esc
+  leave full screen without asking the page.
+- Menu: a row "Full screen" with Off and On, like Sound. Where the API is missing (Safari on iPhone)
+  the row instead tells the reader to use Share, Add to Home Screen. Launched from the home screen
+  (`display-mode: standalone` or `fullscreen`, or `navigator.standalone`), the row is hidden: there is
+  no browser chrome left to remove.
+- HUD: on touch devices with support, a full-screen button beside the menu button, drawn in CSS
+  (four corner marks), since a glyph such as U+26F6 may be missing from a phone's fonts.
+- `index.html`: `mobile-web-app-capable`, `apple-mobile-web-app-capable`,
+  `apple-mobile-web-app-status-bar-style` and `apple-mobile-web-app-title` metas, so a home-screen
+  launch on iOS runs without Safari's bars. No manifest file (R2: no asset files).
+- Not stored in settings: a page cannot enter full screen without a fresh user gesture.
+
+Proof: unit tests for the helpers; in Chromium with touch emulation, the menu row and the HUD button
+enter and leave full screen and their pressed state follows; with the API removed by an init script,
+the row shows the home-screen hint and the HUD button is absent.
+
 ## 6. Validation and acceptance
 
 - `npm run check` exits 0 (whole repo, since nothing else is in flight by now).
@@ -79,7 +103,9 @@ stack, how it relates to the demo that inspired it, and what has and has not bee
 - The built site also works when served from a nested path.
 
 Human checks: H-T12-1, the title screen looks the part; H-T12-2, the whole flow on a touch device;
-H-T12-3, pointer lock and audio start in a real (non-automated) browser session.
+H-T12-3, pointer lock and audio start in a real (non-automated) browser session; H-T12-4, full screen
+on the operator's Android phone and tablet, entered from the menu and from the HUD button, and left
+with the back gesture; H-T12-5, Add to Home Screen on an iPhone opens without Safari's bars.
 
 ## 7. Idempotence and recovery
 
@@ -111,6 +137,24 @@ Evidence:
                                      Esc and Esc again all do what the menu says; no console errors
     screenshots viewed            -> title.png, running.png, stats.png
 
+- [x] 2026-11-15 M7 full screen: `src/app/fullscreen.ts` (6 unit tests, one shown failing first with
+  the webkit fallback disabled), the menu row, the HUD button, the home-screen metas, a README
+  paragraph. Evidence:
+
+      npm run check:task -- T12     -> PASS
+      npm run check                 -> typecheck and lint clean, 347 tests in 28 files
+      shots/T12/fullscreen.mjs      -> 18 of 18, on the dev server and again on the built site
+                                       (vite preview): phone with touch emulation (menu On and Off,
+                                       HUD button in and out, leaving from outside is followed, photo
+                                       mode hides the button), API hidden by an init script (hint
+                                       shown, no button), home-screen launch emulated (row hidden),
+                                       desktop (row works, no button); no console errors
+      shots/T12/interact.mjs        -> 11 of 11, unchanged
+      npm run smoke                 -> SMOKE OK: 770 frames in 6 s, vsync on, median 8.0 ms, p99 8.1,
+                                       worst 8.5, none over 50 ms, 59 draw calls, scale 1
+      screenshots viewed            -> fs-phone-menu.png, fs-nofs-menu.png, fs-phone-running.png,
+                                       fs-icon-enter.png, fs-icon-leave.png (3x crops)
+
 ## 9. Surprises and discoveries
 
 - The first smoke runs read 14 to 21 ms a frame and 8 to 12 ms of CPU. Two causes, neither in the app:
@@ -122,6 +166,15 @@ Evidence:
   to spare. It now ignores the first three seconds, and the smoke test fails if the scale drops at
   `high`.
 
+- 2026-11-15: The first HUD icon, four corner marks drawn with CSS pseudo-elements, rendered as a
+  "+" at phone size (`shots/T12/fs-phone-running.png`). It is now an inline SVG in `index.html`,
+  checked at 3x (`fs-icon-enter.png`, `fs-icon-leave.png`).
+- 2026-11-15: A test pressed `P` after tapping the HUD button and nothing happened: the button kept the
+  focus, and the rig leaves keys to a focused button (T11). The button now gives up focus when
+  tapped, so a tablet keyboard keeps working.
+- 2026-11-15: The smoke median read 8.0 ms against 6.9 ms on 2026-11-14. With vsync on the interval
+  follows the display's refresh, and M7 adds no rendering; the display rate was not checked.
+
 ## 10. Decision log
 
 - 2026-11-14: The menu's CRT switch needed a way to reach the grade. Rather than import `src/post`, a
@@ -129,6 +182,9 @@ Evidence:
 - 2026-11-14: While the menu is open the rig's input is detached, so the tour keeps running behind
   the menu and keys cannot fly the camera; the menu handles its own Escape.
 - 2026-11-14: Changing the detail level reloads the page (D-08). The choice is stored first.
+- 2026-11-15: Full screen covers the whole document, not the canvas, so the overlay and HUD keep
+  working; it is offered on every device in the menu and as a HUD button on touch devices only, where
+  there is no F11. No keyboard shortcut: the keys belong to the camera (T11) and F11 already exists.
 
 ## 11. Contract change requests
 
@@ -141,3 +197,10 @@ listed control works. Not verified: sound actually heard through speakers; point
 start in a non-automated browser session (H-T12-3); any touch device (H-T12-2); context loss and
 restore (the notice exists, the event was never triggered); Firefox and Safari; how the title looks
 on a narrow phone screen (H-T12-1).
+
+M7 (2026-11-15): full screen is offered in the menu everywhere and as a HUD button on touch devices,
+and follows the browser's own state. Checked in Chromium with touch emulation and with the API hidden,
+which stands in for, but is not, Android Chrome on a phone (H-T12-4) or Safari on an iPhone or iPad
+(H-T12-5). Not verified: the prefixed path on a real iPad; whether `navigationUI: 'hide'` hides
+anything more on the operator's devices; that the iOS home-screen metas still give a bar-free launch
+on current iOS (from memory, not tested).

@@ -7,6 +7,7 @@ import { MOOD_ORDER, MOODS, type MoodId } from '../contracts/moods';
 import { QUALITY, type QualityTier } from '../contracts/quality';
 import { createEngine, type Engine } from '../engine/engine';
 import { installDebugApi } from './debugApi';
+import { fullscreenSupported, isFullscreen, isStandalone, onFullscreenChange, setFullscreen } from './fullscreen';
 import { loadSettings, resolveTier, safeStorage, saveSettings, type DeviceHints } from './settings';
 import { createUi } from './ui';
 
@@ -143,8 +144,18 @@ export async function boot(): Promise<void> {
       if (engine) engine.uniforms.uCrt.value = on ? CRT_STRENGTH : 0;
       ui.setCrt(on);
     },
+    onFullscreen: (on) => {
+      void setFullscreen(document, on);
+    },
     onMenu: openMenu,
   });
+
+  // ---- full screen: a switch where the API exists, a home-screen hint where it does not (iPhone),
+  // nothing when already launched from the home screen.
+  const standalone = isStandalone((q) => matchMedia(q), navigator as Navigator & { standalone?: boolean });
+  ui.setFullscreenOffer(fullscreenSupported(document) ? 'api' : standalone ? 'none' : 'hint');
+  ui.setFullscreen(isFullscreen(document));
+  onFullscreenChange(document, () => ui.setFullscreen(isFullscreen(document)));
 
   const fail = (html: string, detail?: string): void => {
     ui.showError(html + (detail ? `<br><br><code>${escapeHtml(detail)}</code>` : ''));

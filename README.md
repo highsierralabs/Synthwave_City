@@ -58,6 +58,10 @@ to fly, and add a second finger to boost.
 The menu has three moods (Sunset, Midnight, Miami), three detail levels (changing it reloads the
 page), sound on or off, and an optional CRT scanline look. Choices are remembered in this browser.
 
+**Full screen.** The menu has a Full screen switch, and on a phone or tablet a button beside the menu
+button does the same while you fly. Safari on iPhone does not let a page go full screen; there, use
+Share, Add to Home Screen, and open the city from its icon, which runs it without Safari's bars.
+
 ## How it works
 
 - **One tile, wrapped.** The city is a single 6.4 km square that repeats. Nothing is streamed: every
