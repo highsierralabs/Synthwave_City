@@ -68,7 +68,11 @@ export async function boot(): Promise<void> {
   };
   const modeLabel = (): string => (rig && rig.mode === 'free' ? 'Free flight' : 'Tour');
   const hintFor = (): string => {
-    if (coarse) return 'Drag to look · hold to fly · ≡ for the menu';
+    if (coarse) {
+      return rig && rig.mode === 'free'
+        ? 'Hold to fly · Back to tour to ride along'
+        : 'Drag to look · hold to fly · ≡ for the menu';
+    }
     return rig && rig.mode === 'free'
       ? 'W A S D to fly · Shift to boost · Space returns to the tour'
       : 'Move the mouse or press W A S D to take over · Esc for the menu';
@@ -96,6 +100,7 @@ export async function boot(): Promise<void> {
     }
     if (!detachInput) detachInput = rig.attachInput(ui.canvas);
     ui.setMode(modeLabel());
+    ui.setFree(rig.mode === 'free');
     ui.setHint(hintFor());
   };
 
@@ -115,12 +120,14 @@ export async function boot(): Promise<void> {
     else if (action === 'photo') ui.toggle('photo');
     else if (action === 'mood') setMood(MOOD_ORDER[(MOOD_ORDER.indexOf(settings.mood) + 1) % MOOD_ORDER.length]!, true);
     else if (action === 'mode') {
+      ui.setFree(rig?.mode === 'free');
       ui.setMode(modeLabel());
       ui.toast(modeLabel());
       ui.setHint(hintFor());
     } else if (action.startsWith('viewpoint:') && rig) {
       const view = rig.viewpoints[Number(action.slice('viewpoint:'.length))];
       if (view) ui.toast(view.name);
+      ui.setFree(rig.mode === 'free');
       ui.setMode(modeLabel());
     }
   };
@@ -143,6 +150,9 @@ export async function boot(): Promise<void> {
       save();
       if (engine) engine.uniforms.uCrt.value = on ? CRT_STRENGTH : 0;
       ui.setCrt(on);
+    },
+    onTour: () => {
+      if (ui.state === 'running') rig?.setMode('tour');
     },
     onFullscreen: (on) => {
       void setFullscreen(document, on);

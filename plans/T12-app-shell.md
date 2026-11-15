@@ -91,6 +91,23 @@ Proof: unit tests for the helpers; in Chromium with touch emulation, the menu ro
 enter and leave full screen and their pressed state follows; with the API removed by an init script,
 the row shows the home-screen hint and the HUD button is absent.
 
+**M8. Back to the tour on touch (revision, 2026-11-15).** The operator: "I want to add a way on mobile
+to re-enter the tour mode. Currently you can enter free flight, but you have to refresh the page to go
+back to tour mode." A touch takes over the camera, and only `Space` (or a gamepad) gave it back. Work,
+all in owned paths, using the rig's existing `setMode('tour')` from `src/camera/rig.ts` (the same
+call `Space` makes; it rejoins the tour smoothly and reports `'mode'`):
+
+- `index.html`: a `#tourButton` "Back to tour" at the top left, shown only on a coarse pointer, while
+  running, not in photo mode, and only in free flight; in that state the "Free flight" chip it
+  replaces is hidden. It is a real button outside the `aria-hidden` HUD.
+- `ui.ts`: `setFree(on)` toggles a `free` class on the body; the button calls a new `onTour` handler and
+  gives up focus, as the full-screen button does.
+- `app.ts`: `onTour` calls `rig.setMode('tour')`; every `'mode'` and viewpoint action updates
+  `setFree`. The touch hint in free flight names the button, and the menu's touch help mentions it.
+
+Proof: in Chromium with touch emulation, a held touch on the view switches to free flight and shows
+the button; a tap on it returns to Tour, hides it and brings the chip back; a desktop never shows it.
+
 ## 6. Validation and acceptance
 
 - `npm run check` exits 0 (whole repo, since nothing else is in flight by now).
@@ -105,7 +122,8 @@ the row shows the home-screen hint and the HUD button is absent.
 Human checks: H-T12-1, the title screen looks the part; H-T12-2, the whole flow on a touch device;
 H-T12-3, pointer lock and audio start in a real (non-automated) browser session; H-T12-4, full screen
 on the operator's Android phone and tablet, entered from the menu and from the HUD button, and left
-with the back gesture; H-T12-5, Add to Home Screen on an iPhone opens without Safari's bars.
+with the back gesture; H-T12-5, Add to Home Screen on an iPhone opens without Safari's bars; H-T12-6, Back to tour on the
+operator's Android phone and tablet.
 
 ## 7. Idempotence and recovery
 
@@ -158,6 +176,22 @@ Evidence:
 - [x] 2026-11-15 H-T12-4, operator report after trying the built site over the tailnet on their phone
   and tablet: "Full-screen works". Which devices and browsers, and whether the iPhone route (H-T12-5)
   was tried, was not stated.
+- [x] 2026-11-15 The operator added: "Full-screen works on my android phone and tablet", and has no
+  iPhone, so H-T12-5 cannot be done by them and stays unverified.
+- [x] 2026-11-15 M8 back to the tour on touch: `#tourButton`, `setFree`, `onTour`, the free-flight
+  touch hint and the menu's touch help. Evidence:
+
+      npm run check:task -- T12     -> PASS
+      npm run check                 -> 347 tests in 28 files
+      shots/T12/tour.mjs            -> 12 of 12, on the dev server and on the built site through the
+                                       tailnet name: a held touch (CDP touch events) gives free flight,
+                                       the button and the free-flight hint; a tap returns to Tour and
+                                       it stays there 3 s later; a viewpoint shows the button; photo
+                                       mode hides it; desktop Space still toggles and never shows it;
+                                       no console errors
+      shots/T12/fullscreen.mjs      -> 18 of 18;  shots/T12/interact.mjs -> 11 of 11
+      npm run smoke                 -> SMOKE OK, median 6.9 ms, p99 7.1, worst 8.5, none over 50 ms
+      screenshots viewed            -> tour-free.png, tour-back.png (412 px wide)
 
 ## 9. Surprises and discoveries
 
@@ -178,6 +212,11 @@ Evidence:
   tapped, so a tablet keyboard keeps working.
 - 2026-11-15: The smoke median read 8.0 ms against 6.9 ms on 2026-11-14. With vsync on the interval
   follows the display's refresh, and M7 adds no rendering; the display rate was not checked.
+
+- 2026-11-15: The first free-flight hint, "Drag to look · hold to fly · Back to tour to ride along",
+  measured 417 px on a 360 px wide phone (`shots/T12/hintwidth.mjs`); the hint does not wrap. It is
+  now "Hold to fly · Back to tour to ride along", 312 px. The smoke median was back at 6.9 ms,
+  which fits the 8.0 ms reading above being the display's refresh, still unconfirmed.
 
 ## 10. Decision log
 
@@ -205,6 +244,11 @@ on a narrow phone screen (H-T12-1).
 M7 (2026-11-15): full screen is offered in the menu everywhere and as a HUD button on touch devices,
 and follows the browser's own state. Checked in Chromium with touch emulation and with the API hidden,
 which stands in for, but is not, Android Chrome on a phone (H-T12-4) or Safari on an iPhone or iPad
-(H-T12-5). Not verified: the prefixed path on a real iPad; whether `navigationUI: 'hide'` hides
+(H-T12-5). The operator confirmed full screen on their Android phone and tablet; they have no
+iPhone, so H-T12-5 stays unverified. Not verified: the prefixed path on a real iPad; whether `navigationUI: 'hide'` hides
 anything more on the operator's devices; that the iOS home-screen metas still give a bar-free launch
 on current iOS (from memory, not tested).
+
+M8 (2026-11-15): on a touch device, free flight shows a Back to tour button where the mode chip was,
+and one tap rejoins the tour. Checked in Chromium with emulated touch, not yet on the operator's
+devices (H-T12-6: try it on the Android phone and tablet).

@@ -15,6 +15,8 @@ export interface UiHandlers {
   onSound(on: boolean): void;
   onCrt(on: boolean): void;
   onFullscreen(on: boolean): void;
+  /** Return the camera to the tour (the touch counterpart of Space). */
+  onTour(): void;
   onMenu(): void;
 }
 
@@ -31,6 +33,8 @@ export interface Ui {
   setFullscreenOffer(offer: FullscreenOffer): void;
   setFullscreen(on: boolean): void;
   setMode(label: string): void;
+  /** Free flight shows the Back to tour button on touch devices. */
+  setFree(on: boolean): void;
   setHint(text: string): void;
   toast(text: string): void;
   setStats(text: string): void;
@@ -60,6 +64,7 @@ export function createUi(handlers: UiHandlers): Ui {
   const look = byId('look');
   const fsChoice = byId('fsChoice');
   const fsButton = byId('fsButton');
+  const tourButton = byId('tourButton');
   const mode = byId('mode');
   const hint = byId('hint');
   const toastEl = byId('toast');
@@ -100,6 +105,10 @@ export function createUi(handlers: UiHandlers): Ui {
   fsButton.addEventListener('click', () => {
     fsButton.blur();
     handlers.onFullscreen(!body.classList.contains('fs-on'));
+  });
+  tourButton.addEventListener('click', () => {
+    tourButton.blur();
+    handlers.onTour();
   });
   enter.addEventListener('click', () => handlers.onEnter());
   byId('menuButton').addEventListener('click', () => handlers.onMenu());
@@ -150,6 +159,9 @@ export function createUi(handlers: UiHandlers): Ui {
     },
     setMode(label: string): void {
       mode.textContent = label;
+    },
+    setFree(on: boolean): void {
+      body.classList.toggle('free', on);
     },
     setHint(text: string): void {
       hint.textContent = text;
