@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01, T02]
 owns: [src/layers/holograms/**, tests/unit/holograms/**, plans/T09-holograms.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**, plans/README.md]
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # T09: holograms
@@ -78,6 +78,16 @@ it, sampled from a strip of the atlas; brightness pulsing gently on `uBeat`.
 **M6. Balance and distance.** From `high`, panels should read as coloured cards of light scattered
 through the skyline. Check the far view for moire from scanlines and fix by filtering.
 
+**M7. Station billboards (revision, 2026-11-15).** The city gains five radio stations (the audio side
+is built in `src/audio/**` and `src/app/**` by another task, not here). Each gets its own wide ad:
+SUNSET FM 88.8 (outrun, unchanged, wide 3), OBSIDIAN 93.3 (darksynth), VELVET 97.1 (chillwave),
+STARPORT 101.5 (spacesynth), PLAZA 104.3 (mallsoft). They read as one family (big frequency numerals
+with an FM tag, a genre line, an ON AIR / LIVE badge or tuning dial) and differ in motif and layout.
+The atlas has no free cell, so the four new ads replace the drawing functions of wide 0, 2, 5 and 6;
+cell count, layout and `pack.ts` placement stay as they are. Optionally one station joins a ticker.
+Proof: atlas dump at 1:1, each new ad cropped and looked at; in-city shots of new station panels under
+two moods; `npm run check:task -- T09` green.
+
 ## 6. Validation and acceptance
 
 - `npm run check:task -- T09` exits 0. Unit test: the layout of atlas cells (no overlap, all inside
@@ -111,6 +121,26 @@ Stateless. The atlas is rebuilt on every page load.
 - [x] Unit tests (2026-11-14): `tests/unit/holograms/{layout,pack,wire}.test.ts`, 26 tests, each
   group shown failing once under a deliberate mutation before passing.
 - [x] Acceptance run and Outcomes written (2026-11-14). Nothing is left open in this plan's paths.
+- [x] M7 station billboards (2026-11-15). In `atlas.ts`: wide 0 = OBSIDIAN 93.3, wide 2 = VELVET
+  97.1, wide 5 = STARPORT 101.5, wide 6 = PLAZA 104.3; SUNSET FM (wide 3) untouched. New helpers
+  `dial` (88-108 tuning scale with a needle), `frequency` (numerals plus FM tag), `tear` (shifts a
+  drawn slice sideways), `shard`, `column`, `checkerFloor`; `type()`'s `grad` now takes any number
+  of evenly spaced stops (used for STARPORT's chrome). News strip 1 gains "OBSIDIAN 93.3 FM". The
+  unused `COIN` sprite (only ARCADE PALACE's wide ad used it) was removed for lint. Looked at the
+  1:1 dump four times (`shots/T09/atlas_stations.png`, crops `atlas_stations_{obsidian,velvet,
+  starport,plaza,sunset}.png` at 2x) and fixed: VELVET's crescent leaked the inner circle outside the
+  moon (clip rebuilt as outer circle, then rect minus bite) and its sky was a hard-edged box (now a
+  radial glow); OBSIDIAN's crystal read as a pink gem (facets moved to dark inks); PLAZA's fountain
+  read as a ghost and was replaced by a potted palm; light type on VELVET and PLAZA raised from 300
+  to 400 weight after the in-city shots showed it faint.
+- [x] M7 in the city (2026-11-15), `layers=sky,ground,buildings,holograms&t=12`, cameras placed 90 m
+  in front of non-switching panels found with `packPanels(createCityPlan(1984).sites, ..., 1)`:
+  `city_starport.png` (cam 3635,176,3690,0,0), `city_velvet.png` (3145,57,919,3.1416,0),
+  `city_obsidian.png` (4720,261,2734,0,0), `city_plaza.png` (4275,57,1012,0,0); moods
+  `city_velvet_midnight.png`, `city_starport_midnight.png`, `city_plaza_miami.png`; far view
+  `city_starport_300m.png` (+ `_zoom` 2x crop). All four ads legible; no console error or shader
+  warning in any shot. The probe test used to find the panels was deleted afterwards.
+- [x] M7 gates (2026-11-15): `npm run check:task -- T09` PASS (26 tests), `npm run plans:check` OK.
 
 ## 9. Surprises and discoveries
 
@@ -145,9 +175,36 @@ Stateless. The atlas is rebuilt on every page load.
   the centre of T04's plaza rings. Inferred cause, not checked in T04's code: the site is at the
   cell centre and the plaza art at the block centre, which differ when one side is an avenue.
 
+- **(2026-11-15) An evenodd clip of two overlapping circles is not a crescent.** VELVET's first moon
+  showed a filled sliver of the bite circle outside the moon, because evenodd fills every region
+  covered once, including the bite's part outside the disc (`atlas_stations` iterations, first
+  dump). Clipping to the disc first, then to a rectangle minus the bite, fixed it.
+- **(2026-11-15) Light weights fade on a panel.** Weight-300 type that was crisp in the 1:1 dump
+  ("velvet", "P L A Z A") was faint on a busy facade backdrop in `city_velvet.png` and
+  `city_plaza.png`; 400 reads. The hologram treatment (scanlines, translucency) eats thin strokes.
+- **(2026-11-15) The station panels looked the same under `sunset`, `midnight` and `miami`.** Only the
+  sky and fog changed between `city_velvet.png` / `city_velvet_midnight.png` and `city_plaza.png` /
+  `city_plaza_miami.png`. Not investigated (cause unknown: the moods may share those palette entries);
+  it does not depend on this revision, which changed only canvas drawing.
+
 ## 10. Decision log
 
-All 2026-11-14.
+- **(2026-11-15) Four wide slots replaced, not added.** All 28 atlas cells are in use and the layout,
+  cell count and round-robin in `pack.ts` are tested and tuned; adding cells would mean a new layout,
+  smaller cells or a bigger atlas. NOVA COLA (0), KIRO NOODLE BAR (2), ARCADE PALACE (5) and LUX
+  CAPSULE HOTEL (6) were chosen (as directed for this revision) because each still has a tall banner, and NOVA
+  COLA and KIRO also run on ticker strips, so no brand leaves the city. Order: OBSIDIAN 0, VELVET 2,
+  STARPORT 5, PLAZA 6, in frequency order, so the order has no other meaning.
+- **(2026-11-15) Family look.** Every station has heavy italic frequency numerals with a small italic
+  FM tag (`frequency`), a tracked genre line and a badge or dial; motif and layout differ: OBSIDIAN
+  is a black crystal with torn video lines, VELVET a moon over water with light lowercase type and
+  upright numerals, STARPORT a star at the vanishing point of lasers with chrome type, PLAZA a
+  symmetric colonnade over a chequered floor with wide-spaced letters. Large fills use the dim inks
+  (A3, B3, A2) per the bloom notes; white-hot is kept to edges, small type and star cores.
+- **(2026-11-15) One ticker mention.** "OBSIDIAN 93.3 FM" was appended to news strip 1; the strip is
+  scaled to fit, so the other items are squeezed about 20% sideways and still read in the dump.
+
+All 2026-11-14 below.
 
 - **The atlas holds inks, not colours.** Red is the panel's first palette colour, green its second,
   blue white-hot; the shader mixes them with `uPalette`. The plan said to bake the colours in. Reason:
@@ -259,3 +316,33 @@ seen in each:
 - `uMotion` below 1, `dispose()`, a lost and restored WebGL context, and the mood cross-fade were not
   exercised. `medium` was seen only in `midnight`, `miami` only at `high`.
 - The names were not checked against any trademark register.
+
+**Revision M7, station billboards (2026-11-15).** The wide atlas now carries all five radio stations:
+OBSIDIAN 93.3 (wide 0), VELVET 97.1 (wide 2), SUNSET FM 88.8 (wide 3, unchanged), STARPORT 101.5
+(wide 5), PLAZA 104.3 (wide 6), plus "OBSIDIAN 93.3 FM" on news strip 1. Layout, cell count and
+`pack.ts` are unchanged; NOVA COLA, KIRO, ARCADE and HOTEL remain on their tall banners and tickers.
+
+```
+> npm run check:task -- T09
+typecheck tsconfig.json: 0 error(s) in T09-holograms, 0 elsewhere
+typecheck tsconfig.node.json: 0 error(s) in T09-holograms, 0 elsewhere
+lint: ok (src/layers/holograms, tests/unit/holograms)
+tests: ok (tests/unit/holograms)
+   Test Files  3 passed (3)
+        Tests  26 passed (26)
+PASS T09-holograms
+> npm run plans:check
+OK
+```
+
+Evidence: `shots/T09/atlas_stations.png` (1:1 dump; the overlay caption read "drawn in 80 ms" on one
+load, within the 300 ms budget) and its 2x crops; `city_{starport,velvet,obsidian,plaza}.png`,
+`city_velvet_midnight.png`, `city_starport_midnight.png`, `city_plaza_miami.png`,
+`city_starport_300m.png`. No new unit test: the change is drawing only, which the node test
+environment cannot run; the existing layout and pack tests still pass.
+
+Not verified for M7: H-T09-1/2 for the new ads (fun, and fonts on another machine; weight-300/400
+type in particular depends on the system font having those weights); the named harness views
+(`plaza`, `canyon`, `mega`) were not used because explicit cameras framed the panels directly;
+`low`/`medium` tiers, where density thinning may drop some of these panels; the stations' audio
+side, which is another task's.

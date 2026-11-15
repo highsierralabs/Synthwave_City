@@ -44,8 +44,8 @@ interface TextStyle {
   align?: 'left' | 'center' | 'right';
   /** Fill ink; null draws the outline only. */
   fill?: string | null;
-  /** Two inks for a top-to-bottom gradient fill; overrides fill. */
-  grad?: readonly [string, string];
+  /** Two or more inks for a top-to-bottom gradient fill, evenly spaced; overrides fill. */
+  grad?: readonly string[];
   stroke?: string;
   strokeWidth?: number;
   /** The text is squeezed sideways to fit this width. */
@@ -81,8 +81,8 @@ function type(g: G, s: string, x: number, y: number, st: TextStyle): number {
     }
     if (st.grad) {
       const grad = g.createLinearGradient(0, -st.size * 0.74, 0, 0);
-      grad.addColorStop(0, st.grad[0]);
-      grad.addColorStop(1, st.grad[1]);
+      const n = st.grad.length - 1;
+      for (let i = 0; i <= n; i++) grad.addColorStop(n > 0 ? i / n : 0, st.grad[i]!);
       g.fillStyle = grad;
       g.fillText(s, 0, 0);
     } else if (st.fill !== null) {
@@ -321,7 +321,6 @@ function bulbs(g: G, x: number, y: number, w: number, h: number, pitch: number, 
 }
 
 const HEART = ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'];
-const COIN = ['.XXXX.', 'XX..XX', 'X.XX.X', 'X.XX.X', 'XX..XX', '.XXXX.'];
 function pixels(g: G, rows: readonly string[], x: number, y: number, s: number, ink: string): void {
   g.fillStyle = ink;
   for (let j = 0; j < rows.length; j++) {
@@ -545,18 +544,123 @@ function speedLines(g: G, x0: number, x1: number, y0: number, y1: number, rng: R
 }
 
 // ---------------------------------------------------------------------------------------------
+// Radio station parts. The five stations (SUNSET FM and the four below) share big italic
+// frequency numerals, an FM tag and a genre line; each has its own motif.
+
+/** An FM tuning scale, 88 to 108, with its needle on freq. */
+function dial(g: G, x: number, y: number, w: number, freq: number, ink: string, needle: string): void {
+  const at = (f: number): number => x + ((f - 88) / 20) * w;
+  line(g, x, y, x + w, y, ink, 2);
+  for (let f = 88; f <= 108; f++) {
+    const major = f % 4 === 0;
+    line(g, at(f), y, at(f), y - (major ? 9 : 5), ink, major ? 2 : 1.2);
+    if (major) type(g, String(f), at(f), y + 10, { size: 10, weight: 700, align: 'center', fill: ink, mono: true });
+  }
+  line(g, at(freq), y - 16, at(freq), y + 4, needle, 3);
+  disc(g, at(freq), y - 17, 3.5, needle);
+}
+
+/** Big frequency numerals with a small FM tag after them. Returns the right edge. */
+function frequency(g: G, s: string, x: number, y: number, size: number, maxWidth: number, st: Partial<TextStyle>, tag: string): number {
+  const style: TextStyle = { size, weight: 900, italic: true, maxWidth, ...st };
+  const w = type(g, s, x, y, style);
+  type(g, 'FM', x + w + 8, y + size * 0.18, { size: size * 0.28, weight: 900, italic: true, track: 0.1, fill: tag });
+  return x + w;
+}
+
+/**
+ * Shift a horizontal slice of what is already drawn sideways, like a torn video line. Works in
+ * canvas pixels (putImageData ignores the transform and clip), so dx must keep it inside the cell.
+ */
+function tear(g: G, x: number, y: number, w: number, h: number, dx: number): void {
+  const m = g.getTransform();
+  const sx = Math.round(m.e + x), sy = Math.round(m.f + y);
+  const slice = g.getImageData(sx, sy, Math.round(w), Math.round(h));
+  g.putImageData(slice, sx + Math.round(dx), sy);
+}
+
+/** A faceted crystal shard: facets in dim inks round a ridge, edges white-hot. */
+function shard(g: G, pts: readonly number[], ridge: readonly [number, number], inks: readonly string[]): void {
+  const n = pts.length / 2;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    poly(g, [ridge[0], ridge[1], pts[i * 2]!, pts[i * 2 + 1]!, pts[j * 2]!, pts[j * 2 + 1]!]);
+    g.fillStyle = inks[i % inks.length]!;
+    g.fill();
+  }
+  g.lineJoin = 'miter';
+  poly(g, pts);
+  g.strokeStyle = W;
+  g.lineWidth = 2.5;
+  g.stroke();
+  for (let i = 0; i < n; i++) line(g, ridge[0], ridge[1], pts[i * 2]!, pts[i * 2 + 1]!, i % 2 === 0 ? AW : A, 1.4);
+}
+
+/** A fluted classical column standing on y, top at y - h. */
+function column(g: G, cx: number, y: number, h: number, w: number, ink: string, cap: string): void {
+  g.fillStyle = cap;
+  g.fillRect(cx - w * 0.8, y - h, w * 1.6, h * 0.05);
+  g.fillRect(cx - w * 0.66, y - h * 0.95, w * 1.32, h * 0.035);
+  ring(g, cx - w * 0.62, y - h * 0.9, w * 0.17, cap, 2);
+  ring(g, cx + w * 0.62, y - h * 0.9, w * 0.17, cap, 2);
+  g.fillStyle = ink;
+  g.fillRect(cx - w / 2, y - h * 0.9, w, h * 0.84);
+  g.fillStyle = K;
+  for (let i = 1; i < 4; i++) g.fillRect(cx - w / 2 + (i * w) / 4 - 1, y - h * 0.86, 2, h * 0.76);
+  g.fillStyle = cap;
+  g.fillRect(cx - w * 0.68, y - h * 0.06, w * 1.36, h * 0.03);
+  g.fillRect(cx - w * 0.8, y - h * 0.03, w * 1.6, h * 0.03);
+}
+
+/** A chequered floor in perspective between the horizon y0 and y1. */
+function checkerFloor(g: G, x0: number, x1: number, y0: number, y1: number, tile: number, inkA: string, inkB: string): void {
+  g.save();
+  g.beginPath();
+  g.rect(x0, y0, x1 - x0, y1 - y0);
+  g.clip();
+  const cx = (x0 + x1) / 2, rows = 6;
+  const yAt = (v: number): number => y0 + (y1 - y0) * Math.pow(v, 1.7);
+  const sAt = (y: number): number => 0.18 + 0.82 * ((y - y0) / (y1 - y0));
+  const half = Math.ceil(((x1 - x0) / 2) / (tile * 0.18)) + 1;
+  for (let j = 0; j < rows; j++) {
+    const ya = yAt(j / rows), yb = yAt((j + 1) / rows), sa = sAt(ya), sb = sAt(yb);
+    for (let i = -half; i < half; i++) {
+      poly(g, [cx + i * tile * sa, ya, cx + (i + 1) * tile * sa, ya, cx + (i + 1) * tile * sb, yb, cx + i * tile * sb, yb]);
+      g.fillStyle = ((i + j) & 1) === 0 ? inkA : inkB;
+      g.fill();
+    }
+  }
+  g.restore();
+}
+
+// ---------------------------------------------------------------------------------------------
 // Wide adverts, 512 x 256.
 
 const WIDE_ADS: readonly Ad[] = [
-  // NOVA COLA
-  (g) => {
-    can(g, 92, 130, 78, 176, -0.2);
-    for (const [x, y, r] of [[168, 52, 9], [186, 96, 5], [160, 150, 7], [182, 196, 11], [204, 152, 4], [148, 104, 4]] as const) ring(g, x, y, r, B, 2.5);
-    type(g, 'NOVA', 214, 74, { size: 96, weight: 900, italic: true, fill: A, stroke: W, strokeWidth: 5, maxWidth: 280 });
-    type(g, 'COLA', 236, 152, { size: 96, weight: 900, italic: true, grad: [BH, B], maxWidth: 258 });
-    g.fillStyle = hgrad(g, 214, 498, A, B);
-    g.fillRect(214, 201, 284, 4);
-    type(g, 'ICE COLD / ZERO GRAVITY', 216, 224, { size: 17, weight: 700, track: 0.2, fill: W, maxWidth: 280 });
+  // OBSIDIAN 93.3, darksynth: a black crystal, torn video lines, nearly all ink A.
+  (g, rng) => {
+    for (let y = 22; y < 236; y += 11) {
+      if (!rng.chance(0.55)) continue;
+      const x0 = rng.range(14, 120);
+      line(g, x0, y, x0 + rng.range(20, 90), y, rng.chance(0.3) ? AW : A3, rng.range(2, 5));
+    }
+    shard(g, [92, 16, 150, 74, 140, 186, 84, 244, 34, 166, 50, 62], [96, 122], [A3, K, A2, K, A3, A2]);
+    poly(g, [158, 150, 182, 176, 160, 214]);
+    g.fillStyle = A2;
+    g.fill();
+    poly(g, [24, 32, 44, 44, 30, 70]);
+    g.fillStyle = A3;
+    g.fill();
+    type(g, 'OBSIDIAN', 194, 40, { size: 50, weight: 900, italic: true, track: 0.04, fill: A, stroke: W, strokeWidth: 2.5, stretch: 0.86, maxWidth: 300 });
+    type(g, '93.3', 186, 116, { size: 108, weight: 900, italic: true, fill: B2, maxWidth: 236 });
+    frequency(g, '93.3', 190, 116, 108, 236, { grad: [AW, A, A2], stroke: K, strokeWidth: 4 }, W);
+    line(g, 194, 172, 498, 172, A, 3);
+    dial(g, 194, 210, 236, 93.3, A, W);
+    badge(g, 442, 188, 56, 28, 'LIVE', A, true);
+    type(g, 'DARKSYNTH ALL NIGHT', 194, 236, { size: 13, weight: 800, track: 0.34, fill: W, mono: true, maxWidth: 304 });
+    tear(g, 186, 88, 312, 7, 9);
+    tear(g, 186, 132, 312, 4, -7);
+    tear(g, 20, 104, 160, 6, 8);
   },
   // HYPERLINE
   (g, rng) => {
@@ -583,14 +687,47 @@ const WIDE_ADS: readonly Ad[] = [
     type(g, 'EXPRESS', 498, 200, { size: 15, weight: 800, track: 0.2, align: 'right', fill: B, maxWidth: 76 });
     type(g, 'DOWNTOWN IN 4 MIN', 256, 232, { size: 17, weight: 700, track: 0.3, align: 'center', fill: W, mono: true, maxWidth: 470 });
   },
-  // KIRO NOODLE BAR
+  // VELVET 97.1, chillwave: a crescent moon over still water, soft gradients, light wide type.
   (g, rng) => {
-    bowl(g, 104, 150, 76);
-    type(g, 'KIRO', 206, 82, { size: 118, weight: 900, fill: A, stroke: W, strokeWidth: 5, stretch: 1.08, maxWidth: 250 });
-    type(g, 'NOODLE BAR', 208, 156, { size: 34, weight: 800, track: 0.16, fill: B, maxWidth: 248 });
-    badge(g, 208, 190, 170, 40, 'OPEN 25 HRS', W, false);
-    glyphRun(g, 474, 34, 20, 6, rng, AB, true);
-    line(g, 462, 26, 462, 232, A2, 2);
+    // Sky: a dim glow round the moon that fades to nothing, and a few stars.
+    const glow = g.createRadialGradient(112, 86, 30, 112, 100, 118);
+    glow.addColorStop(0, A3);
+    glow.addColorStop(1, K);
+    g.fillStyle = glow;
+    g.fillRect(14, 14, 208, 144);
+    for (let i = 0; i < 16; i++) disc(g, rng.range(20, 216), rng.range(20, 120), rng.range(0.8, 1.8), i % 3 === 0 ? BW : W);
+    // The moon: a soft halo, then the crescent in a gradient.
+    for (let i = 0; i < 4; i++) ring(g, 112, 86, 50 + i * 9, i % 2 === 0 ? A3 : B3, 2);
+    g.save();
+    g.beginPath();
+    g.arc(112, 86, 46, 0, TAU);
+    g.clip();
+    g.beginPath();
+    g.rect(60, 36, 104, 104);
+    g.arc(132, 74, 40, 0, TAU);
+    g.clip('evenodd');
+    g.fillStyle = vgrad(g, 40, 132, W, AH);
+    g.fillRect(60, 36, 104, 104);
+    g.restore();
+    line(g, 16, 158, 220, 158, B, 2);
+    // Its reflection: stripes that shorten and break up with depth.
+    for (let i = 0; i < 9; i++) {
+      const y = 166 + i * 8.5, half = 40 - i * 3.6, wob = Math.sin(i * 1.7) * 6;
+      line(g, 112 - half + wob, y, 112 + half * 0.3 + wob, y, i % 2 === 0 ? AH : A2, 3 - i * 0.2);
+      line(g, 112 + half * 0.45 + wob, y, 112 + half + wob, y, A2, 2.5 - i * 0.2);
+    }
+    for (let i = 0; i < 5; i++) line(g, 18 + i * 9, 170 + i * 15, 70 + i * 4, 170 + i * 15, B3, 2);
+    for (let i = 0; i < 5; i++) line(g, 160 - i * 4, 176 + i * 14, 216 - i * 6, 176 + i * 14, B3, 2);
+    type(g, 'velvet', 362, 44, { size: 54, weight: 400, track: 0.32, align: 'center', fill: W, maxWidth: 262 });
+    line(g, 244, 82, 480, 82, B2, 1.5);
+    frequency(g, '97.1', 246, 132, 96, 196, { weight: 600, italic: false, grad: [BH, B, B2] }, A);
+    type(g, 'CHILLWAVE / LATE HOURS', 362, 190, { size: 14, weight: 600, track: 0.36, align: 'center', fill: AH, maxWidth: 252 });
+    rr(g, 300, 210, 124, 28, 14);
+    g.strokeStyle = B;
+    g.lineWidth = 2;
+    g.stroke();
+    disc(g, 318, 224, 5, A);
+    type(g, 'ON AIR', 372, 224, { size: 15, weight: 600, track: 0.3, align: 'center', fill: W, maxWidth: 80 });
   },
   // SUNSET FM 88.8
   (g, rng) => {
@@ -614,35 +751,58 @@ const WIDE_ADS: readonly Ad[] = [
     type(g, 'VECTOR GT', 498, 208, { size: 24, weight: 900, italic: true, align: 'right', fill: A, stroke: K, strokeWidth: 6, maxWidth: 120 });
     type(g, 'TWIN TURBO', 498, 232, { size: 13, weight: 700, track: 0.2, align: 'right', fill: W, stroke: K, strokeWidth: 5, mono: true, maxWidth: 120 });
   },
-  // ARCADE PALACE
-  (g) => {
-    bulbs(g, 22, 22, 468, 212, 18, W, A2);
-    type(g, 'ARCADE', 256, 86, { size: 96, weight: 900, align: 'center', fill: A, stroke: W, strokeWidth: 5, maxWidth: 400 });
-    type(g, 'PALACE', 256, 150, { size: 40, weight: 800, track: 0.5, align: 'center', fill: B, maxWidth: 380 });
-    for (let i = 0; i < 3; i++) pixels(g, HEART, 62 + i * 40, 184, 5, AW);
-    pixels(g, COIN, 418, 182, 6, AB);
-    type(g, 'INSERT COIN', 300, 200, { size: 22, weight: 700, track: 0.12, align: 'center', fill: W, mono: true, maxWidth: 200 });
-  },
-  // LUX CAPSULE HOTEL
-  (g) => {
-    for (let j = 0; j < 3; j++) {
-      for (let i = 0; i < 3; i++) {
-        const lit = i === 1 && j === 1;
-        rr(g, 26 + i * 56, 40 + j * 62, 46, 50, 16);
-        if (lit) {
-          g.fillStyle = vgrad(g, 40 + j * 62, 90 + j * 62, AH, A);
-          g.fill();
-        }
-        g.strokeStyle = lit ? W : B2;
-        g.lineWidth = 3;
-        g.stroke();
-      }
+  // STARPORT 101.5, spacesynth: a star at the vanishing point, lasers converging on it, chrome type.
+  (g, rng) => {
+    const vx = 112, vy = 120;
+    for (let i = 0; i < 70; i++) {
+      const x = rng.range(14, 498), y = rng.range(14, 242);
+      if (x > 200 && y > 40 && y < 200) continue;
+      disc(g, x, y, rng.range(0.7, 1.7), rng.chance(0.25) ? BW : W);
     }
-    moon(g, 470, 46, 22, W);
-    type(g, 'LUX', 212, 84, { size: 112, weight: 900, fill: AH, stroke: W, strokeWidth: 3, stretch: 1.25, maxWidth: 220 });
-    type(g, 'CAPSULE HOTEL', 214, 148, { size: 28, weight: 800, track: 0.2, fill: B, maxWidth: 282 });
-    badge(g, 214, 184, 150, 42, 'VACANCY', A, true);
-    type(g, 'FROM 39 A NIGHT', 380, 205, { size: 13, weight: 700, track: 0.12, fill: W, maxWidth: 118 });
+    // Lasers: bright near the star, dim where they run behind the type.
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * TAU + 0.1;
+      const ex = vx + Math.cos(a) * 420, ey = vy + Math.sin(a) * 420;
+      g.strokeStyle = hgrad(g, vx, ex, i % 2 === 0 ? A : B, K);
+      g.lineWidth = i % 4 === 0 ? 3 : 1.6;
+      g.beginPath();
+      g.moveTo(vx, vy);
+      g.lineTo(ex, ey);
+      g.stroke();
+    }
+    for (let i = 0; i < 4; i++) ring(g, vx, vy, 30 * Math.pow(1.6, i), i % 2 === 0 ? B3 : A3, 1.6);
+    burst(g, vx, vy, 52, 8, A2);
+    burst(g, vx, vy, 40, 16, AB);
+    burst(g, vx, vy, 22, 4, W);
+    disc(g, vx, vy, 9, W);
+    chevrons(g, 152, 214, 26, 3, B, 0.7);
+    type(g, 'STARPORT', 206, 48, { size: 56, weight: 900, italic: true, grad: [W, BW, B3, B, BH], stroke: W, strokeWidth: 1.5, maxWidth: 292 });
+    frequency(g, '101.5', 208, 124, 96, 236, { grad: [AH, A, A2], stroke: W, strokeWidth: 2.5 }, B);
+    type(g, 'SPACESYNTH NONSTOP', 210, 180, { size: 17, weight: 800, italic: true, track: 0.22, fill: W, maxWidth: 288 });
+    dial(g, 210, 216, 220, 101.5, B, AW);
+    badge(g, 446, 196, 52, 28, 'ON', A, true);
+  },
+  // PLAZA 104.3, mallsoft: columns under an arch, a chequered floor, letters spaced wide.
+  (g) => {
+    checkerFloor(g, 12, 500, 196, 246, 46, A3, B3);
+    line(g, 12, 196, 500, 196, B, 2);
+    column(g, 48, 196, 176, 26, B3, W);
+    column(g, 464, 196, 176, 26, B3, W);
+    g.strokeStyle = A2;
+    g.lineWidth = 3;
+    g.beginPath();
+    g.ellipse(256, 34, 196, 18, 0, Math.PI, TAU);
+    g.stroke();
+    line(g, 60, 34, 452, 34, A2, 3);
+    type(g, 'P L A Z A', 256, 62, { size: 34, weight: 400, track: 0.3, align: 'center', fill: W, maxWidth: 330 });
+    frequency(g, '104.3', 104, 128, 86, 220, { grad: [AH, A], stroke: W, strokeWidth: 2 }, B);
+    // A potted palm, as in every atrium.
+    palm(g, 410, 142, 62, 0.2, B2);
+    poly(g, [390, 140, 428, 140, 422, 158, 396, 158]);
+    g.fillStyle = A2;
+    g.fill();
+    line(g, 388, 140, 430, 140, W, 2);
+    type(g, 'MALLSOFT / OPEN TIL CLOSE', 256, 180, { size: 14, weight: 700, track: 0.3, align: 'center', fill: AH, mono: true, maxWidth: 330 });
   },
   // ORBIT AIRLINES
   (g) => {
@@ -946,7 +1106,7 @@ function stripItems(index: number, rng: Rng): Item[] {
     case 1:
       return [
         word('GRAVBALL FINALS TONIGHT', W), diamondItem(A), word('SKYLANE 4 DELAYS', AB), diamondItem(A),
-        word('RAIN OF LIGHT AT MIDNIGHT', B), diamondItem(A),
+        word('RAIN OF LIGHT AT MIDNIGHT', B), diamondItem(A), word('OBSIDIAN 93.3 FM', AW, { italic: true, weight: 900 }), diamondItem(A),
       ];
     case 2:
       return [
