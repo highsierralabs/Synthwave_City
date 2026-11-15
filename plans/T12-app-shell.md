@@ -108,6 +108,33 @@ call `Space` makes; it rejoins the tour smoothly and reports `'mode'`):
 Proof: in Chromium with touch emulation, a held touch on the view switches to free flight and shows
 the button; a tap on it returns to Tour, hides it and brings the chip back; a desktop never shows it.
 
+**M9. Choose the city (revision, 2026-11-15).** The operator: "Add the new city row along with the
+ability to enter your own seed number". The seed already decides the whole plan (`createCityPlan`,
+the rig, the song, each layer's seed); until now only `?seed=` in the address could change it. Work:
+
+- `src/app/seed.ts`, pure: `DEFAULT_SEED = 1984`; `parseSeed(text)` accepts a whole number from 1 to
+  4294967295 written in digits, with surrounding spaces, and returns null for anything else (0,
+  signs, decimals, exponents, text, more than 10 digits). That range is every distinct city:
+  `hash32` and `createRng` reduce a seed to 32 bits, so larger numbers would repeat smaller ones.
+  `rollSeed(random, current)` gives a whole number from 1 to 999999, never the current one, so a
+  rolled city is short to read out or type.
+- Settings gain `seed` (default 1984; validated with the same rule). The seed in use is, first, a
+  valid `?seed=` in the address; else the stored one; else 1984. A malformed `?seed=` is ignored
+  (it used to mean 1984 for `0` and text, and a truncated number for decimals).
+- Menu: a row "City" holding a numeric field with the current seed (`inputmode="numeric"`, so Android
+  shows the number pad), a Go button, and a New button. The field and Go are a `<form>`, so the
+  keyboard's Enter or Go key submits. A valid number different from the current seed is stored,
+  written into the address as `?seed=`, and the page reloads, as changing Detail does (D-08: the plan
+  is built once per page). The same number does nothing. An invalid one marks the field and says
+  "1 to 4294967295" under it, without reloading. New rolls a seed and does the same.
+- The address carries the seed after a change, so a city can be bookmarked or shared; the stored
+  seed means a plain visit returns to the last city chosen in this browser.
+
+Proof: unit tests for `seed.ts` and the settings field; in Chromium (touch and desktop): New reloads
+into a different city whose number is in the field and the address; typing a number and Go (and the
+Enter key) loads that city; an invalid entry is refused without a reload; the choice survives a
+plain visit; `?seed=` beats the stored seed.
+
 ## 6. Validation and acceptance
 
 - `npm run check` exits 0 (whole repo, since nothing else is in flight by now).
@@ -123,7 +150,8 @@ Human checks: H-T12-1, the title screen looks the part; H-T12-2, the whole flow 
 H-T12-3, pointer lock and audio start in a real (non-automated) browser session; H-T12-4, full screen
 on the operator's Android phone and tablet, entered from the menu and from the HUD button, and left
 with the back gesture; H-T12-5, Add to Home Screen on an iPhone opens without Safari's bars; H-T12-6, Back to tour on the
-operator's Android phone and tablet.
+operator's Android phone and tablet; H-T12-7, the City row on the same devices (number pad, Go key,
+New).
 
 ## 7. Idempotence and recovery
 
@@ -192,6 +220,29 @@ Evidence:
       shots/T12/fullscreen.mjs      -> 18 of 18;  shots/T12/interact.mjs -> 11 of 11
       npm run smoke                 -> SMOKE OK, median 6.9 ms, p99 7.1, worst 8.5, none over 50 ms
       screenshots viewed            -> tour-free.png, tour-back.png (412 px wide)
+- [x] 2026-11-15 H-T12-6, operator: "The back to tour works" (on the devices they test with, the
+  Android phone and tablet).
+- [x] 2026-11-15 M9 choose the city: `src/app/seed.ts` (5 unit tests; two shown failing with the range
+  check loosened to accept 0), the `seed` setting (validated, default 1984), the City row, the address
+  and storage rules, `city <n>` in the stats panel, a README paragraph. Evidence:
+
+      npm run check:task -- T12     -> PASS
+      npm run check                 -> 352 tests
+      shots/T12/city.mjs            -> 34 of 34 (phone 360 px with touch, and desktop), on the dev
+                                       server and on the built site through the tailnet name: New
+                                       reloads into a rolled city (873145: 16,548 boxes) with the
+                                       number in the field, the address and storage; 7 and Go gives
+                                       17,179 boxes; "abc", "0", "7.5", "4294967296" and "" are
+                                       refused with the note and no reload; typing clears the mark;
+                                       the same number does not reload; Enter submits; a plain visit
+                                       returns to the stored city; ?seed=7 beats it; ?seed=hello
+                                       falls back to it; ENTER still enters; no console errors
+      shots/T12/tour.mjs 12/12, fullscreen.mjs 18/18, interact.mjs 11/11
+      shots/T12/landscape.mjs       -> 800x360 phone on its side: logo top at 7 px, the credit line
+                                       reachable at the bottom of the scroll
+      npm run smoke                 -> SMOKE OK, median 6.9 ms, p99 7.1, none over 50 ms
+      screenshots viewed            -> city-menu.png, city-bad.png, landscape-top.png,
+                                       landscape-bottom.png
 
 ## 9. Surprises and discoveries
 
@@ -218,6 +269,13 @@ Evidence:
   now "Hold to fly · Back to tour to ride along", 312 px. The smoke median was back at 6.9 ms,
   which fits the 8.0 ms reading above being the display's refresh, still unconfirmed.
 
+- 2026-11-15: After M9, `interact.mjs` failed 7 of 11: it clicked ENTER at a fixed (800, 322), and the
+  taller menu had moved the button to y 238 to 295. The test now clicks `#enter` by id.
+- 2026-11-15: On a phone on its side (800x360) the menu overflowed and `align-content: center` put
+  part of it above the scroll origin: the logo was cut off and the last row could not be scrolled
+  fully into view. Present before M9, worse with the extra row. Fixed with `align-content: safe
+  center` (after a plain `center` for browsers without `safe`) and tighter spacing below 30rem tall.
+
 ## 10. Decision log
 
 - 2026-11-14: The menu's CRT switch needed a way to reach the grade. Rather than import `src/post`, a
@@ -225,6 +283,10 @@ Evidence:
 - 2026-11-14: While the menu is open the rig's input is detached, so the tour keeps running behind
   the menu and keys cannot fly the camera; the menu handles its own Escape.
 - 2026-11-14: Changing the detail level reloads the page (D-08). The choice is stored first.
+- 2026-11-15: The seed is remembered as well as put in the address. Remembering matches every other
+  menu choice ("remembered in this browser"); the address makes a city shareable. A URL seed wins so
+  a shared link always shows the city it names. Rolled seeds stop at 999999 to stay short; typed
+  ones may use the whole 32-bit range.
 - 2026-11-15: Full screen covers the whole document, not the canvas, so the overlay and HUD keep
   working; it is offered on every device in the menu and as a HUD button on touch devices only, where
   there is no F11. No keyboard shortcut: the keys belong to the camera (T11) and F11 already exists.
@@ -252,3 +314,9 @@ on current iOS (from memory, not tested).
 M8 (2026-11-15): on a touch device, free flight shows a Back to tour button where the mode chip was,
 and one tap rejoins the tour. Checked in Chromium with emulated touch, not yet on the operator's
 devices (H-T12-6: try it on the Android phone and tablet).
+
+M9 (2026-11-15): the menu's City row shows the current seed, takes a typed one (1 to 4294967295) or
+rolls one with New, and reloads into that city, which is remembered and put in the address. Checked
+in Chromium with phone emulation and on desktop; not yet on the operator's devices (H-T12-7). Not
+verified: the number pad and Go key of the Android keyboard (`inputmode`, `enterkeyhint`); Safari's
+handling of `safe center` (older versions fall back to plain centring).

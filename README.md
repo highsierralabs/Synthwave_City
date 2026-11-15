@@ -58,6 +58,13 @@ to fly, and add a second finger to boost.
 The menu has three moods (Sunset, Midnight, Miami), three detail levels (changing it reloads the
 page), sound on or off, and an optional CRT scanline look. Choices are remembered in this browser.
 
+**Other cities.** Every city grows from one number, its seed; the original is 1984. The menu's City row
+shows the number of the city you are in. Type another (any whole number from 1 to 4294967295) and press
+Go, or press New for a random one; the page reloads into that city. The number is also put in the
+address, as `?seed=7` for example, so a city you like can be bookmarked or shared. The street grid,
+the sun and the mountains are the same in every city; districts, towers, signs, traffic, the tour and
+the music change.
+
 **Full screen.** The menu has a Full screen switch, and on a phone or tablet a button beside the menu
 button does the same while you fly. Safari on iPhone does not let a page go full screen; there, use
 Share, Add to Home Screen, and open the city from its icon, which runs it without Safari's bars.

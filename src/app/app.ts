@@ -7,6 +7,7 @@ import { MOOD_ORDER, MOODS, type MoodId } from '../contracts/moods';
 import { QUALITY, type QualityTier } from '../contracts/quality';
 import { createEngine, type Engine } from '../engine/engine';
 import { installDebugApi } from './debugApi';
+import { chooseSeed, parseSeed, rollSeed } from './seed';
 import { fullscreenSupported, isFullscreen, isStandalone, onFullscreenChange, setFullscreen } from './fullscreen';
 import { loadSettings, resolveTier, safeStorage, saveSettings, type DeviceHints } from './settings';
 import { createUi } from './ui';
@@ -42,6 +43,17 @@ export async function boot(): Promise<void> {
     saveSettings(storage, settings);
   };
   const coarse = matchMedia('(pointer: coarse)').matches;
+  // The city: a valid ?seed= in the address, else the one last chosen in the menu, else 1984 (M9).
+  const seed = chooseSeed(params.get('seed'), settings.seed);
+  /** Build another city: remember it, put it in the address, reload (the plan is built once, D-08). */
+  const loadCity = (next: number): void => {
+    if (next === seed) return;
+    settings.seed = next;
+    save();
+    const url = new URL(location.href);
+    url.searchParams.set('seed', String(next));
+    location.replace(url.toString());
+  };
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
   // Filled in as boot proceeds; the UI handlers below close over them.
@@ -151,6 +163,17 @@ export async function boot(): Promise<void> {
       if (engine) engine.uniforms.uCrt.value = on ? CRT_STRENGTH : 0;
       ui.setCrt(on);
     },
+    onSeed: (text) => {
+      const next = parseSeed(text);
+      if (next === null) {
+        ui.setSeedInvalid(true);
+        return;
+      }
+      ui.setSeedInvalid(false);
+      ui.setSeed(next);
+      loadCity(next);
+    },
+    onNewCity: () => loadCity(rollSeed(Math.random, seed)),
     onTour: () => {
       if (ui.state === 'running') rig?.setMode('tour');
     },
@@ -195,12 +218,12 @@ export async function boot(): Promise<void> {
   ui.setMood(settings.mood);
   ui.setSound(!settings.muted);
   ui.setCrt(settings.crt);
+  ui.setSeed(seed);
 
   // ---- build
   try {
     ui.setProgress(0.03, 'Surveying the city');
     await nextPaint();
-    const seed = Number(params.get('seed') ?? 1984) || 1984;
     const t0 = performance.now();
     const plan = createCityPlan(seed);
     const planMs = performance.now() - t0;
@@ -265,7 +288,7 @@ export async function boot(): Promise<void> {
     ui.setStats([
       `${s.fps.toFixed(0)} fps   ${s.frameMs.toFixed(1)} ms   cpu ${s.cpuMs.toFixed(2)} ms`,
       `${s.drawCalls} draws   ${(s.triangles / 1e6).toFixed(2)} M tris`,
-      `scale ${s.renderScale.toFixed(2)}   ${live.quality.tier}   ${live.pipelineKind}`,
+      `scale ${s.renderScale.toFixed(2)}   ${live.quality.tier}   ${live.pipelineKind}   city ${seed}`,
       `speed ${liveRig.speed.toFixed(0)} m/s   alt ${live.pose.y.toFixed(0)} m`,
       `layers ${live.layerIds.join(' ')}`,
       ...live.errors.slice(0, 4),

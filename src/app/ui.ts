@@ -17,6 +17,10 @@ export interface UiHandlers {
   onFullscreen(on: boolean): void;
   /** Return the camera to the tour (the touch counterpart of Space). */
   onTour(): void;
+  /** The City field was submitted with this text. */
+  onSeed(text: string): void;
+  /** The New button: roll a city. */
+  onNewCity(): void;
   onMenu(): void;
 }
 
@@ -31,6 +35,10 @@ export interface Ui {
   setSound(on: boolean): void;
   setCrt(on: boolean): void;
   setFullscreenOffer(offer: FullscreenOffer): void;
+  /** Show the current city number in the City field. */
+  setSeed(seed: number): void;
+  /** Mark the City field as refused (true) or clear the mark. */
+  setSeedInvalid(bad: boolean): void;
   setFullscreen(on: boolean): void;
   setMode(label: string): void;
   /** Free flight shows the Back to tour button on touch devices. */
@@ -65,6 +73,9 @@ export function createUi(handlers: UiHandlers): Ui {
   const fsChoice = byId('fsChoice');
   const fsButton = byId('fsButton');
   const tourButton = byId('tourButton');
+  const cityRow = byId('cityRow');
+  const cityForm = byId<HTMLFormElement>('cityForm');
+  const seedInput = byId<HTMLInputElement>('seedInput');
   const mode = byId('mode');
   const hint = byId('hint');
   const toastEl = byId('toast');
@@ -106,6 +117,12 @@ export function createUi(handlers: UiHandlers): Ui {
     fsButton.blur();
     handlers.onFullscreen(!body.classList.contains('fs-on'));
   });
+  cityForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlers.onSeed(seedInput.value);
+  });
+  seedInput.addEventListener('input', () => cityRow.classList.remove('bad'));
+  byId('newCity').addEventListener('click', () => handlers.onNewCity());
   tourButton.addEventListener('click', () => {
     tourButton.blur();
     handlers.onTour();
@@ -150,6 +167,14 @@ export function createUi(handlers: UiHandlers): Ui {
     setFullscreenOffer(offer: FullscreenOffer): void {
       body.classList.toggle('fs-api', offer === 'api');
       body.classList.toggle('fs-hint', offer === 'hint');
+    },
+    setSeed(seed: number): void {
+      seedInput.value = String(seed);
+    },
+    setSeedInvalid(bad: boolean): void {
+      cityRow.classList.toggle('bad', bad);
+      seedInput.setAttribute('aria-invalid', String(bad));
+      if (bad) seedInput.focus({ preventScroll: true });
     },
     setFullscreen(on: boolean): void {
       body.classList.toggle('fs-on', on);

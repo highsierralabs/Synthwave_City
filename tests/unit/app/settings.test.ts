@@ -19,10 +19,12 @@ describe('settings', () => {
   });
 
   it('keeps valid fields and clamps volume', () => {
-    const s = validate({ tier: 'medium', mood: 'miami', muted: true, volume: 7, crt: true, pending: 'high', extra: 1 });
-    expect(s).toEqual({ tier: 'medium', mood: 'miami', muted: true, volume: 1, crt: true, pending: 'high' });
+    const s = validate({ tier: 'medium', mood: 'miami', muted: true, volume: 7, crt: true, seed: 77, pending: 'high', extra: 1 });
+    expect(s).toEqual({ tier: 'medium', mood: 'miami', muted: true, volume: 1, crt: true, seed: 77, pending: 'high' });
     expect(validate({ volume: -3 }).volume).toBe(0);
     expect(validate({ volume: Number.NaN }).volume).toBe(DEFAULTS.volume);
+    for (const bad of [0, -3, 2.5, 4294967296, '7', null]) expect(validate({ seed: bad }).seed).toBe(DEFAULTS.seed);
+    expect(DEFAULTS.seed).toBe(1984);
   });
 
   it('round-trips through storage', () => {
