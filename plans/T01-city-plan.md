@@ -1,7 +1,7 @@
 ---
 id: T01-city-plan
 title: The deterministic city plan
-status: ready
+status: done
 depends_on: [T00]
 owns: [src/city/**, tests/unit/city/**, plans/T01-city-plan.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
@@ -88,15 +88,25 @@ Pure functions; nothing persists. Delete `src/city` and restart from M1 if the s
 
 ## 8. Progress
 
-- [ ] M1 districts
-- [ ] M2 massing
-- [ ] M3 lanes
-- [ ] M4 sites
-- [ ] M5 queries and landmarks
+- [x] 2026-11-14 M1 districts (`districts.ts`): three downtown peaks, 12 megatower cells, plazas.
+- [x] 2026-11-14 M2 massing (`massing.ts`): lots, podiums, shafts, setbacks, crowns, spires, megatowers.
+- [x] 2026-11-14 M3 lanes (`lanes.ts`): 520 lanes.
+- [x] 2026-11-14 M4 sites (`sites.ts`), with a clearance check on every panel.
+- [x] 2026-11-14 M5 queries and landmarks (`queries.ts`, `index.ts`).
+
+Evidence:
+
+    npm run check:task -- T01     -> PASS (18 tests)
+    harness, seed 1984            -> 17,001 boxes, 520 lanes, 2,094 sites, plan built in 55 ms
+    view=top and view=high        -> viewed: distinct downtown, megatowers with setbacks and spires,
+                                     open plaza cells, colour neighbourhoods, clear streets
 
 ## 9. Surprises and discoveries
 
-None yet.
+- The first site pass made 1,289 floating panels, which the range test rejected. Probabilities were cut
+  (roofs 0.13 to 0.08, streets 0.10 to 0.055, avenues 0.16 to 0.12).
+- `check:task` caught a literal-type error (`let street = BOX_FLAG.street` infers the type `2`) that
+  the Vitest run did not, because Vite strips types without checking them.
 
 ## 10. Decision log
 
@@ -109,4 +119,8 @@ None.
 
 ## 12. Outcomes and retrospective
 
-Not yet written.
+Done. The plan is deterministic, builds in tens of milliseconds, and every invariant in section 6 is a
+unit test, including a brute-force check that no hologram volume touches a box. Megatowers are not
+strictly guaranteed to be invisible twice in one view; they are at least 7 cells (1,120 m) apart and
+the tile repeat is 6,400 m, which the far fade (3,100 m) hides. Not verified: how the skyline reads
+once real facades replace the probe; that is T05 and T13.

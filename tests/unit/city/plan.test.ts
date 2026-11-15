@@ -173,8 +173,6 @@ describe('city plan: sites', () => {
   for (const s of plan.sites) kinds.set(s.kind, (kinds.get(s.kind) ?? 0) + 1);
 
   it('has every kind, in useful numbers', () => {
-    const megas = plan.landmarks.filter((l) => l.kind === 'megatower').map((l) => Math.round(l.height));
-    console.log(`plan 1984: ${plan.boxCount} boxes, ${plan.buildingCount} buildings, ${plan.lanes.length} lanes, sites ${JSON.stringify(Object.fromEntries(kinds))}, megatowers ${megas.join(' ')}`);
     expect(kinds.get('holoPanel')).toBeGreaterThan(150);
     expect(kinds.get('holoPanel')).toBeLessThan(900);
     expect(kinds.get('holoObject')).toBeGreaterThan(15);

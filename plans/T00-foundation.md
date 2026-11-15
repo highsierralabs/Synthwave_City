@@ -1,7 +1,7 @@
 ---
 id: T00-foundation
 title: Tooling, contracts, core, engine and dev harness
-status: ready
+status: done
 depends_on: []
 owns: [package.json, package-lock.json, tsconfig.json, tsconfig.node.json, vite.config.ts, vitest.config.ts, eslint.config.js, .gitignore, .gitattributes, CLAUDE.md, src/contracts/**, src/core/**, src/engine/**, dev/**, scripts/**, tests/unit/contracts/**, tests/unit/core/**, tests/unit/engine/**, plans/README.md, plans/T00-foundation.md]
 reads: [architecture.md, Agents.md]
@@ -141,4 +141,7 @@ This task owns the contracts. Requests from other plans are recorded here with t
 
 ## 12. Outcomes and retrospective
 
-Not yet written.
+Done. Contracts are frozen from this commit; later changes go through section 11. The engine hosts
+layers found by glob, the harness gives every task the same named views, and `shot.mjs` renders on the
+RTX 4070 SUPER through D3D11. Not verified here: `smoke.mjs` (it needs the shipped page from T12), and
+any browser other than the cached Chromium 1234.
