@@ -36,9 +36,12 @@ node scripts/shot.mjs --url "/dev/?layers=sky,buildings&cam=3200,180,3200,0.6,-0
 ```
 
 `shot.mjs` needs the dev server running. It prints the WebGL renderer string, any console errors and
-basic image statistics, and writes a PNG. Harness URL parameters: `layers` (comma list, or `all`),
-`cam` (`x,y,z,yaw,pitch` in metres and radians), `t` (seconds; freezes time), `q` (quality tier),
-`mood`, `post=0` (bypass the pipeline), `seed`.
+basic image statistics, and writes a PNG. Harness URL parameters: `layers` (comma list, `all`, and
+`probe` for the flat-shaded test boxes), `view` (a named camera from `dev/views.ts`: `high`, `away`,
+`sun`, `canyon`, `street`, `side`, `roof`, `plaza`, `mega`, `top`, `low`), `cam` (`x,y,z,yaw,pitch`
+in metres and radians), `t` (seconds; freezes time), `q` (quality tier), `mood`, `post=0` (bypass the
+pipeline), `seed`, `rig=1` (use `src/camera`). `shot.mjs` also takes `--frames N --dt s --move dx,dy,dz
+--turn rad` for sequences; run it with no arguments for the list.
 
 ### Source of truth, highest first
 
@@ -170,8 +173,12 @@ In `update` and anything else called per frame: no `new`, no `clone()`, no closu
 - Use `highp` for coordinates and time. This desktop reports 23 bits for `mediump`, so precision bugs
   do not show here [MV].
 - Translator warnings go to `console.warn`, not `console.error` [MV]. The screenshot tool prints both.
-- Hashes: use the ones in `SC_COMMON`. `fract(sin(x) * 43758.5453)` differs between GPUs for large
-  arguments [M]; keep hash inputs small (cell indices, not metres times a thousand).
+- Hashes: use the ones in `SC_COMMON`. They hash the exact bits of a float, so feed them exact
+  values: `floor`ed cell indices and quantised seeds. `fract(sin(x) * 43758.5453)` differs between
+  GPUs for large arguments [M].
+- **Per-instance values go to the fragment shader as `flat varying`.** An interpolated constant is not
+  bit-exact across a triangle, and the hashes turned that into speckle on every facade; `flat`, plus
+  `floor(seed * 4096.0)` before hashing, fixed it [O].
 
 ## pmndrs postprocessing 6.39.6
 

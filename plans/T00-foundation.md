@@ -100,16 +100,33 @@ written except the Vite and npm caches.
 
 ## 8. Progress
 
-- [ ] M1 scaffold
-- [ ] M2 contracts
-- [ ] M3 core
-- [ ] M4 engine
-- [ ] M5 harness and probe
-- [ ] M6 scripts
+- [x] 2026-11-14 M1 scaffold: pinned versions installed (141 packages), typecheck and lint clean.
+- [x] 2026-11-14 M2 contracts: nine files in `src/contracts`; parity test green.
+- [x] 2026-11-14 M3 core: `random.ts`, `math.ts`, `clock.ts` with tests.
+- [x] 2026-11-14 M4 engine: `engine.ts`, `uniforms.ts`, `basicPipeline.ts`.
+- [x] 2026-11-14 M5 harness and probe: `dev/` with named views, fly camera, `window.__sc`.
+- [x] 2026-11-14 M6 scripts: `shot.mjs`, `check-task.mjs`, `plans-check.mjs`, `smoke.mjs` (smoke needs
+  T12's `index.html` before it can run).
+
+Evidence:
+
+    npm run check                 -> typecheck clean, lint clean, 26 tests passed
+    npm run plans:check           -> 14 plans, OK
+    shot view=high                -> renderer ANGLE (NVIDIA GeForce RTX 4070 SUPER, D3D11), 3 draw calls
+    wrap proof                    -> cam=3200,650,4700 and cam=9600,650,-1700 give byte-identical PNGs (same md5)
+    seam proof                    -> cam=6,90,3206 on the tile seam: buildings on both sides, no gap (viewed)
+    negative control              -> an undefined identifier in the probe shader makes shot.mjs exit 1
 
 ## 9. Surprises and discoveries
 
-None yet.
+- The first probe frame was speckled on every facade. Cause: a per-instance seed passed as an ordinary
+  varying is not bit-exact across a triangle, and the contract hashes work on exact float bits. Fix:
+  `flat varying` and a quantised seed. Recorded in Agents.md, "Custom GLSL".
+- Fog as bright as the horizon sky turns every dark wall pink at a few hundred metres. The mood fog
+  colours were cut to roughly a quarter of the horizon colour, so distant towers read as dark
+  silhouettes against a brighter sky rather than dissolving. `architecture.md` section 5.3 still says
+  the two match; T03 blends a thin haze band at the horizon instead, and T13 decides the final values.
+- A bash heredoc containing an apostrophe fails in this tool. Files are written with the file tools.
 
 ## 10. Decision log
 

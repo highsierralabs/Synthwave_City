@@ -289,9 +289,10 @@ whites out the frame.
 ### 5.3 Fog and distance
 
 Exponential fog, denser near the ground, tinted by direction: warm towards the sun, violet away from
-it. The sky's horizon band uses the same function (`sc_fogColor`), so distant geometry dissolves into
-the sky rather than ending. Emission is fogged like everything else; L2 and L3 survive it and are what
-you see far away.
+it. The fog is deliberately dimmer than the horizon sky, so distant towers stand as dark silhouettes
+against the glow instead of washing out; the sky blends to `sc_fogColor` only in a thin haze band at
+the horizon line, where the ground plane ends. Emission is fogged like everything else; L2 and L3
+survive it and are what you see far away.
 
 ### 5.4 Per-layer techniques
 
