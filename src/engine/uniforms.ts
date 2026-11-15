@@ -64,6 +64,7 @@ export function createSharedUniforms(plan: CityPlan, quality: QualitySettings, m
     uReflMatrix: { value: new Matrix4() },
     uReflAmount: { value: 0 },
     uExposure: { value: mood.exposure },
+    uCrt: { value: 0 },
   };
 }
 

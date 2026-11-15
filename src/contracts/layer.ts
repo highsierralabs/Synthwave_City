@@ -59,6 +59,8 @@ export interface SharedUniforms {
   /** 0 when there is no reflection pass, else 1. */
   readonly uReflAmount: IUniform<number>;
   readonly uExposure: IUniform<number>;
+  /** Scanline (CRT) strength for the grade, 0 is off. Read by src/post only; not declared in SC_COMMON. */
+  readonly uCrt: IUniform<number>;
 }
 
 /** Plain numbers describing the current frame. Never retain it between frames. */

@@ -69,13 +69,11 @@ export interface GradeSettings {
   /** How much of the hue-preserving curve to blend in, 0..1. */
   hold: number;
   vignette: number;
-  /** Scanline strength, 0 is off. */
-  crt: number;
   grain: number;
 }
 
 export class GradeEffect extends Effect {
-  constructor(exposure: Uniform, settings: GradeSettings) {
+  constructor(exposure: Uniform, crt: Uniform, settings: GradeSettings) {
     super('GradeEffect', FRAGMENT, {
       blendFunction: BlendFunction.SET,
       uniforms: new Map<string, Uniform>([
@@ -83,14 +81,14 @@ export class GradeEffect extends Effect {
         ['uCurve', new Uniform(settings.curve)],
         ['uHold', new Uniform(settings.hold)],
         ['uVignette', new Uniform(settings.vignette)],
-        ['uCrt', new Uniform(settings.crt)],
+        ['uCrt', crt],
         ['uGrain', new Uniform(settings.grain)],
         ['uSeed', new Uniform(0)],
       ]),
     });
   }
 
-  set(name: 'uCurve' | 'uHold' | 'uVignette' | 'uCrt' | 'uGrain' | 'uSeed', value: number): void {
+  set(name: 'uCurve' | 'uHold' | 'uVignette' | 'uGrain' | 'uSeed', value: number): void {
     this.uniforms.get(name)!.value = value;
   }
 }

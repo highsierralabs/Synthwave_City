@@ -139,6 +139,10 @@ Evidence:
 
 This task owns the contracts. Requests from other plans are recorded here with their outcome.
 
+- 2026-11-14, from T12, approved: add `uCrt: IUniform<number>` to `SharedUniforms` (default 0), so the
+  menu can switch scanlines on and off without reaching into `src/post`. Additive; no shader in any
+  layer is affected, since it is not declared in `SC_COMMON`. The grade in `src/post` now reads it.
+
 ## 12. Outcomes and retrospective
 
 Done. Contracts are frozen from this commit; later changes go through section 11. The engine hosts

@@ -16,10 +16,10 @@ export const POST_TUNING = {
   bloomRadius: 0.78,
   bloomLevels: 7,
   chromaticAberration: 0.0011,
-  grade: { curve: 0, hold: 0.45, vignette: 0.42, crt: 0, grain: 0.035 } satisfies GradeSettings,
+  grade: { curve: 0, hold: 0.45, vignette: 0.42, grain: 0.035 } satisfies GradeSettings,
 };
 
-/** Debug overrides from the page URL (dev harness only): tm=aces|neon, crt=0..1, bloom=number, ca=number. */
+/** Debug overrides from the page URL: tm=aces|neon, crt=0..1, bloom=number, ca=number. */
 function urlNumber(name: string): number | null {
   if (typeof location === 'undefined') return null;
   const v = new URLSearchParams(location.search).get(name);
@@ -45,10 +45,11 @@ export function createPipeline(host: PipelineHost): FramePipeline {
   });
   const ca = urlNumber('ca') ?? POST_TUNING.chromaticAberration;
   const aberration = new ChromaticAberrationEffect({ offset: new Vector2(ca, ca * 0.6), radialModulation: true, modulationOffset: 0.2 });
-  const grade = new GradeEffect(uniforms.uExposure as unknown as Uniform, {
+  const crtOverride = urlNumber('crt');
+  if (crtOverride !== null) uniforms.uCrt.value = crtOverride;
+  const grade = new GradeEffect(uniforms.uExposure as unknown as Uniform, uniforms.uCrt as unknown as Uniform, {
     ...POST_TUNING.grade,
     curve: tm === 'aces' ? 1 : POST_TUNING.grade.curve,
-    crt: urlNumber('crt') ?? POST_TUNING.grade.crt,
   });
   const effects = new EffectPass(camera, aberration, bloom, grade);
   effects.dithering = true;
