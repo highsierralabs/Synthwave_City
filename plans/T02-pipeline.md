@@ -90,7 +90,7 @@ No persistent state. `?post=0` always gives the unprocessed frame for comparison
 - [x] 2026-11-14 M3 reflection pass: mirror camera, half-size half-float target with mipmaps.
 - [x] 2026-11-14 M4 adaptive resolution: `adaptive.ts`, five unit tests.
 - [x] 2026-11-14 M5 precompile: `warmUp()` compiles with the composer target bound.
-- [ ] M6 sun shafts (stretch): not built. Left for T13 to take or drop.
+- [ ] M6 sun shafts (stretch): not built. Dropped by T13 (see its Decision log).
 
 Evidence:
 

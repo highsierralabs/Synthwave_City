@@ -25,8 +25,8 @@ sibling project Midnight Vector on this machine with the same pinned versions an
   spires with blinking lights, and a few megatowers that dwarf the rest.
 - **Flying vehicles:** thousands of craft in stacked sky lanes between the towers, with engine glow and
   light trails, plus a handful of large hero ships.
-- **Shimmering shafts of light:** sweeping searchlights, beacon pillars that rise out of sight, laser
-  fans from tower crowns, and sun shafts through the skyline.
+- **Shimmering shafts of light:** sweeping searchlights, beacon pillars that rise out of sight, and
+  laser fans from tower crowns.
 - **Floating holographic billboards:** translucent ad panels hanging in the air with scanlines, flicker
   and glitch, and large rotating wireframe holograms over the plazas.
 - **Busy streets:** dense ground traffic with headlights and tail lights, crowds on the sidewalks,
@@ -334,7 +334,8 @@ glow sprites 300.
 3. **Bloom** (mip chain), then **tone mapping**, a little chromatic aberration, vignette, and an optional
    CRT look (scanlines and grain). The tone curve is chosen to keep neon saturated rather than
    bleaching it to white.
-4. Optional **sun shafts**: a radial blur from the sun's screen position, masked by scene depth.
+4. **Sun shafts** (a radial blur from the screen position of the sun) were planned as an option and
+   are not built; `QualitySettings.sunShafts` is reserved for them.
 
 ### 5.7 Moods
 
@@ -404,9 +405,9 @@ the constants in the chunk equal to the TypeScript ones.
 
 | Tier | Pixel ratio cap | MSAA | Reflection | Density | Far fade `R0`/`R1` | Extras |
 |---|---|---|---|---|---|---|
-| `low` | 1 | 0 | off | 0.35 | 1300 / 1800 | no crowds, no shafts |
+| `low` | 1 | 0 | off | 0.35 | 1300 / 1800 | no crowds |
 | `medium` | 1.5 | 0 | half size | 0.6 | 1900 / 2400 | |
-| `high` | 2 | 4 | half size | 1 | 2500 / 3100 | sun shafts |
+| `high` | 2 | 4 | half size | 1 | 2500 / 3100 | |
 
 The tier is picked from the device on first run, stored, and changed from the menu, which reloads the
 page. Within a tier the pipeline lowers the render scale when frames run long and raises it again when
