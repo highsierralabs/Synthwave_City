@@ -110,11 +110,29 @@ set again, but publication itself cannot be undone: assume anything pushed has b
 
 ## 7. Progress
 
-- [ ] M1 audit
-- [ ] M2 release files
-- [ ] M3 local checks
-- [ ] Gate 1 push
-- [ ] M4 remote build
+- [x] 2026-11-14 M1 audit. **A1 passes.** `git grep` over every tracked file for the user-home name,
+  the tailnet and host names, `AppData`, token prefixes: 0 lines (one unrelated hit, the
+  `LOCALAPPDATA` environment variable name in `scripts/lib/browser.mjs`). Two files mention the
+  workspace folder `C:\highsierralabs`, which Midnight Vector's public plans already do. All commits
+  have one author, the GitHub noreply address. Largest tracked file before screenshots: the lockfile,
+  90 kB.
+- [x] 2026-11-14 M2 release files. `LICENSE` and the workflow copied from Midnight Vector unchanged;
+  `THIRD-PARTY-NOTICES.md` from the same source with the two sentences that name the project changed;
+  **A5 passes** (both licence texts found byte for byte against `node_modules`). `CONTRIBUTING.md`,
+  package metadata, README (play link, four screenshots at 1280x720 taken from the build with
+  `shot.mjs`, licence and contributing sections, an honest tested-on paragraph), `Agents.md` Git
+  section, the T14 rows in `architecture.md` and `plans/README.md`.
+- [x] 2026-11-14 M3 local checks. **A2:** `npm run check` exit 0, 341 tests. **A3:** `npm run build` and
+  `npm run smoke` pass (865 frames in 6 s, p99 7.1 ms, none over 50 ms). **A4:** a fresh `git clone`
+  of the local repository, `npm ci`, `npm run build`: exit 0, clean tree, `dist/` complete.
+- [x] 2026-11-14 **Gate 1.** `origin` added; `git push -u origin main`. **A6 passes:** `git ls-remote
+  origin` shows `HEAD` and `refs/heads/main` at `e55774a`, the local head. The repository was private.
+- [x] 2026-11-14 M4 remote build. **A7 passes:** Actions run 43681902846 for `e55774a`, event `push`:
+  job `build` success (checkout, Node 24.14.1, `npm ci`, `npm run build`, licence copy, artifact
+  upload); job `deploy` skipped, as designed for a private repository. One annotation: the
+  `ubuntu-latest` label will move to Ubuntu 26.
+- [x] 2026-11-14 M6, first half: the workspace `CLAUDE.md` now lists the project (table row, the
+  instruction-files list, and a Synthwave_City section with commands and gotchas).
 - [ ] Gate 2 public
 - [ ] M5 publish settings
 - [ ] M6 notes
