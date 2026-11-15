@@ -7,7 +7,7 @@ import {
 import { wrap } from '../core/math';
 import type { Rng } from '../core/random';
 import { cellIndex, type DistrictMap } from './districts';
-import type { BuildingInfo } from './massing';
+import { blockRect, type BuildingInfo } from './massing';
 import { volumeBlocked, type BoxIndex } from './queries';
 
 /** Panel heights over an avenue that stay clear of that avenue's own sky lanes. */
@@ -61,9 +61,10 @@ export function buildSites(
     if (b.district === DISTRICT.downtown && b.hasCrown && b.spireTop === 0 && rng.chance(0.1)) {
       add('laser', b.x, b.top + 1, b.z, rng.range(1400, 2400), rng.int(5, 9), 0, rng.range(0, Math.PI * 2), rng.chance(0.5) ? b.colorA : 5);
     }
-    // A billboard floating over a low roof.
+    // A billboard floating over a roof: common over low roofs, and over the tall towers too, where
+    // the skyline would otherwise have none. A spire in the way fails the clearance check.
     const foot = Math.min(b.baseX, b.baseZ);
-    if (b.top <= 130 && foot >= 24 && rng.chance(0.08)) {
+    if (foot >= 24 && rng.chance(b.top <= 130 ? 0.08 : 0.2)) {
       const w = Math.min(70, Math.max(24, foot * rng.range(0.9, 1.5)));
       const h = w * rng.range(0.4, 0.6);
       const y = b.top + 8 + h / 2 + rng.range(0, 20);
@@ -74,8 +75,9 @@ export function buildSites(
 
   // ---- plazas
   for (const i of map.plazaCells) {
-    const cx = i % CELLS, cz = Math.floor(i / CELLS);
-    const x = (cx + 0.5) * CELL + 0, z = (cz + 0.5) * CELL;
+    // The centre of the block, not of the cell: they differ by 4 m beside an avenue.
+    const rect = blockRect(i % CELLS, Math.floor(i / CELLS));
+    const x = (rect.x0 + rect.x1) / 2, z = (rect.z0 + rect.z1) / 2;
     const color = cellPalette(i);
     if (rng.chance(0.75)) add('holoObject', x, rng.range(55, 110), z, rng.range(20, 38), 0, 0, 0, color);
     if (rng.chance(0.55)) add('pillar', x, 0, z, rng.range(3.5, 6), rng.range(1600, 2200), 0, 0, color);
@@ -95,7 +97,10 @@ export function buildSites(
       const avenue = isAvenue(line);
       const altitudes = avenue ? panelAltitudes(axis) : [];
       for (let c = 0; c < CELLS; c++) {
-        if (!rng.chance(avenue ? 0.12 : 0.055)) continue;
+        // Denser where the skyline is taller, so downtown canyons are hung with them.
+        const here = axis === 0 ? cellIndex(c, line) : cellIndex(line, c);
+        const boost = 1 + 2.5 * map.field[here]!;
+        if (!rng.chance((avenue ? 0.09 : 0.04) * boost)) continue;
         const along = (c + 0.5) * CELL, fixed = line * CELL;
         const x = axis === 0 ? along : fixed, z = axis === 0 ? fixed : along;
         // The panel faces along the road, so it spans the corridor.
@@ -103,8 +108,7 @@ export function buildSites(
         const w = avenue ? 34 : 18;
         const h = avenue ? 15 : rng.range(28, 46);
         const y = avenue ? rng.pick(altitudes) : rng.range(30 + h / 2, 260);
-        const cell = axis === 0 ? cellIndex(c, line) : cellIndex(line, c);
-        if (panelClear(x, y, z, w, h, yaw)) add('holoPanel', x, y, z, w, h, 0, yaw, rng.chance(0.5) ? cellPalette(cell) : rng.int(0, 4));
+        if (panelClear(x, y, z, w, h, yaw)) add('holoPanel', x, y, z, w, h, 0, yaw, rng.chance(0.5) ? cellPalette(here) : rng.int(0, 4));
       }
     }
   }

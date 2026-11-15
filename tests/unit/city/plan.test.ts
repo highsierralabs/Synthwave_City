@@ -174,7 +174,7 @@ describe('city plan: sites', () => {
 
   it('has every kind, in useful numbers', () => {
     expect(kinds.get('holoPanel')).toBeGreaterThan(150);
-    expect(kinds.get('holoPanel')).toBeLessThan(900);
+    expect(kinds.get('holoPanel')).toBeLessThan(1300);
     expect(kinds.get('holoObject')).toBeGreaterThan(15);
     expect(kinds.get('searchlight')).toBeGreaterThan(40);
     expect(kinds.get('pillar')).toBeGreaterThan(20);

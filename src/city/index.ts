@@ -4,7 +4,7 @@ import { CELL, CELLS } from '../contracts/constants';
 import { createRng } from '../core/random';
 import { buildDistricts } from './districts';
 import { buildLanes } from './lanes';
-import { buildMassing } from './massing';
+import { blockRect, buildMassing } from './massing';
 import { buildBoxIndex, collide, heightAt } from './queries';
 import { buildSites } from './sites';
 import { DISTRICT } from '../contracts/city';
@@ -25,7 +25,11 @@ export function createCityPlan(seed: number): CityPlan {
     .filter((b) => b.district === DISTRICT.mega)
     .map((b) => ({ kind: 'megatower' as const, ...centre(b.cell), x: b.x, z: b.z, height: b.spireTop }))
     .sort((a, b) => b.height - a.height);
-  const plazas: Landmark[] = map.plazaCells.map((i) => ({ kind: 'plaza' as const, ...centre(i), height: 0 }));
+  const plazas: Landmark[] = map.plazaCells.map((i) => {
+    const c = centre(i);
+    const rect = blockRect(c.cellX, c.cellZ);
+    return { kind: 'plaza' as const, ...c, x: (rect.x0 + rect.x1) / 2, z: (rect.z0 + rect.z1) / 2, height: 0 };
+  });
   const downtown: Landmark = {
     kind: 'downtown',
     ...centre(map.peakCell),

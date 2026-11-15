@@ -117,6 +117,13 @@ Evidence:
 
 None.
 
+- 2026-11-14, reopened after T09's report and closed again the same day. Two defects: downtown had few
+  billboard sites (roof billboards stopped at 130 m, and road panels were as sparse there as in the
+  suburbs), and plaza sites and landmarks used the cell centre while the block is offset 4 m beside an
+  avenue. Fix: roof billboards on tall towers at 0.2, road-panel chance scaled by the skyline field
+  (base 0.09 avenue, 0.04 street, times 1 to 3.5), plaza sites and landmarks at the block centre. The
+  upper bound on panels in the test went from 900 to 1,300.
+
 ## 12. Outcomes and retrospective
 
 Done. The plan is deterministic, builds in tens of milliseconds, and every invariant in section 6 is a
