@@ -6,14 +6,14 @@ import { BEATS_PER_BAR, Voice, type NoteEvent, type Song } from './song';
 export const SECONDS_PER_BEAT = 60 / BPM;
 export const BEATS_PER_SECOND = BPM / 60;
 
-/** Beats since the music started, for a reading of the audio clock. */
-export function beatAt(contextTime: number, startTime: number): number {
-  return (contextTime - startTime) * BEATS_PER_SECOND;
+/** Beats since the music started, for a reading of the audio clock. `bpm` is the station's tempo. */
+export function beatAt(contextTime: number, startTime: number, bpm: number = BPM): number {
+  return ((contextTime - startTime) * bpm) / 60;
 }
 
 /** The audio-clock time of a beat. */
-export function timeAt(beat: number, startTime: number): number {
-  return startTime + beat * SECONDS_PER_BEAT;
+export function timeAt(beat: number, startTime: number, bpm: number = BPM): number {
+  return startTime + (beat * 60) / bpm;
 }
 
 export interface SchedulerStats {

@@ -11,8 +11,13 @@
 //               ├─ ping-pong delay ──│──────────────────────┤     volume ─ gate ─ output
 //               └─ reverb ───────────┴──────────────────────┤
 //   city bed, whooshes ─ ambience ──────────────────────────┘
+//
+// A SoundStyle (one per radio station, src/audio/stations.ts) picks the instruments, the tempo the
+// delay is timed to, the rooms and the levels. Three stages exist only where a style asks for them:
+// drive on the bass bus, a tape wobble (a modulated delay on the whole mix, after premaster) and a
+// tape low-pass (after the shelf). SUNSET_SOUND has none of them and is the original graph.
+import { BPM } from '../contracts/constants';
 import { createRng, hashInts, type Rng } from '../core/random';
-import { SECONDS_PER_BEAT } from './transport';
 
 /** Nothing leaves the clamp above this: -6.2 dBFS. */
 export const CEILING = 0.49;
@@ -27,6 +32,64 @@ export const DEFAULT_MAX_VOICES = 64;
  * goes down, how long it is held there and the time constant of the way back, in seconds.
  */
 const DUCK = { pad: 0.72, bass: 0.5, arp: 0.4, attack: 0.006, hold: 0.035, recover: 0.09, minGap: 0.2 } as const;
+
+/** What one station sounds like. The composition is a SongStyle in song.ts. */
+export interface SoundStyle {
+  /** Tempo of the station; the delay is timed to it and the player keeps time with it. */
+  readonly bpm: number;
+  /** Kick: start, settled and final pitch in Hz, seconds to settle, length, beater click level. */
+  readonly kick: { readonly from: number; readonly to: number; readonly tail: number; readonly drop: number; readonly length: number; readonly click: number };
+  /** Saturation of the kick bus; higher is harder. */
+  readonly kickDrive: number;
+  /** `gated`: the 80s snare into the gated room. `clap`: three slaps and a tail. `soft`: a light brushed snare. */
+  readonly snare: 'gated' | 'clap' | 'soft';
+  /** `saw`: two saws and a sub. `grit`: the same, more resonant, for a driven bus. `pluck`: saw and square, snappy. `round`: triangle and sine, smooth. */
+  readonly bass: 'saw' | 'grit' | 'pluck' | 'round';
+  /** Saturation of the bass bus; 0 leaves it clean (no stage is built). */
+  readonly bassDrive: number;
+  /** `saw`: bright detuned saws. `dark`: the same, closed down. `glass`: soft triangles. `keys`: an FM electric piano. */
+  readonly pad: 'saw' | 'dark' | 'glass' | 'keys';
+  /** `pluck`: saw and square. `square`: bright squares an octave apart. `bell`: an FM bell. `mallet`: a short FM mallet. */
+  readonly arp: 'pluck' | 'square' | 'bell' | 'mallet';
+  /** `saw`: saws and a square. `square`: a bright square with fast vibrato. `flute`: soft and breathy. `muted`: a filtered square that opens slowly. */
+  readonly lead: 'saw' | 'square' | 'flute' | 'muted';
+  /** Length of the hall reverb's impulse. */
+  readonly reverbSeconds: number;
+  /** Delay time in beats: 0.75 a dotted eighth, 0.5 an eighth. */
+  readonly delayBeats: number;
+  readonly delayFeedback: number;
+  /** Depth of the pad chorus, 1 as designed. */
+  readonly chorusDepth: number;
+  /** Corner of a tape low-pass over the whole mix, Hz; 0 for none. */
+  readonly tape: number;
+  /** Tape wobble: seconds of slow delay swing over the whole mix (0.004 is about 15 cents); 0 for none. */
+  readonly wow: number;
+  /** Side-chain depth, 1 as designed. */
+  readonly duck: number;
+  /** Bus gains relative to LEVEL. */
+  readonly level: Readonly<Partial<Record<'kick' | 'snare' | 'hats' | 'perc' | 'bass' | 'pad' | 'arp' | 'lead' | 'reverb' | 'delay' | 'sum', number>>>;
+}
+
+/** The first station's sound: the mix this module has always made. */
+export const SUNSET_SOUND: SoundStyle = {
+  bpm: BPM,
+  kick: { from: 180, to: 54, tail: 45, drop: 0.09, length: 0.33, click: 0.22 },
+  kickDrive: 2.2,
+  snare: 'gated',
+  bass: 'saw',
+  bassDrive: 0,
+  pad: 'saw',
+  arp: 'pluck',
+  lead: 'saw',
+  reverbSeconds: 2.6,
+  delayBeats: 0.75,
+  delayFeedback: 0.42,
+  chorusDepth: 1,
+  tape: 0,
+  wow: 0,
+  duck: 1,
+  level: {},
+};
 
 /** Bus gains. The balance of the mix lives here; plans/T10-audio.md records how it was measured. */
 const LEVEL = {
@@ -64,6 +127,8 @@ export interface MixOptions {
   maxVoices?: number;
   /** False leaves out the city bed, to measure the parts on their own. Whooshes still play. */
   bed?: boolean;
+  /** The station's sound. Default SUNSET_SOUND. */
+  sound?: SoundStyle;
 }
 
 export interface VoiceCount {
@@ -77,6 +142,7 @@ export interface VoiceCount {
 
 export interface Mix {
   readonly ctx: BaseAudioContext;
+  readonly sound: SoundStyle;
   // Inputs, one per part.
   readonly kick: AudioNode;
   readonly snare: AudioNode;
@@ -227,6 +293,8 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   const rng = createRng(hashInts(options.seed ?? 1, 0xa0d10));
   const output = options.output ?? ctx.destination;
   const owned: AudioScheduledSourceNode[] = [];
+  const sound = options.sound ?? SUNSET_SOUND;
+  const lv = (part: keyof SoundStyle['level']): number => sound.level[part] ?? 1;
 
   const gain = (value: number): GainNode => {
     const node = ctx.createGain();
@@ -258,7 +326,7 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   };
 
   // ---- Master chain
-  const premaster = stereo(LEVEL.sum);
+  const premaster = stereo(LEVEL.sum * lv('sum'));
   const shelf = filter('highshelf', 9000, 0.707, -1.5);
   const subsonic = filter('highpass', 28);
   const compressor = ctx.createDynamicsCompressor();
@@ -272,65 +340,92 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   clamp.curve = shaperCurve(clampShape);
   const volume = gain(1);
   const gate = gain(0);
-  premaster.connect(shelf).connect(subsonic).connect(compressor).connect(trim).connect(clamp).connect(volume).connect(gate).connect(output);
+  // Optional tape stages: a slow wobble before the shelf, a low-pass after it.
+  let head: AudioNode = premaster;
+  if (sound.wow > 0) {
+    const wobble = ctx.createDelay(0.1);
+    wobble.delayTime.value = 0.004 + sound.wow * 1.2;
+    head.connect(wobble);
+    head = wobble;
+    lfo(0.31, sound.wow, wobble.delayTime);
+    lfo(4.7, sound.wow * 0.025, wobble.delayTime);
+  }
+  head.connect(shelf);
+  let tail: AudioNode = shelf;
+  if (sound.tape > 0) {
+    const tape = filter('lowpass', sound.tape, 0.6);
+    tail.connect(tape);
+    tail = tape;
+  }
+  tail.connect(subsonic).connect(compressor).connect(trim).connect(clamp).connect(volume).connect(gate).connect(output);
 
   // ---- Shared effects
   const reverbIn = gain(1);
   const reverb = ctx.createConvolver();
   // The impulses are scaled here, not by the browser, so the level is the same everywhere.
   reverb.normalize = false;
-  reverb.buffer = hallImpulse(ctx, 2.6, rng.fork(1));
-  reverbIn.connect(reverb).connect(gain(LEVEL.reverbReturn)).connect(premaster);
+  reverb.buffer = hallImpulse(ctx, sound.reverbSeconds, rng.fork(1));
+  reverbIn.connect(reverb).connect(gain(LEVEL.reverbReturn * lv('reverb'))).connect(premaster);
 
   // Ping-pong delay on dotted eighths: left, then right, each repeat darker.
   const delayIn = gain(1);
-  const delayTime = 0.75 * SECONDS_PER_BEAT;
+  const delayTime = (sound.delayBeats * 60) / sound.bpm;
   const delayLeft = ctx.createDelay(1);
   const delayRight = ctx.createDelay(1);
   delayLeft.delayTime.value = delayTime;
   delayRight.delayTime.value = delayTime;
   const delayTone = filter('lowpass', 3200);
   const delayThin = filter('highpass', 300);
-  const feedbackRight = gain(LEVEL.delayFeedback);
-  const feedbackLeft = gain(LEVEL.delayFeedback);
+  const feedbackRight = gain(sound.delayFeedback);
+  const feedbackLeft = gain(sound.delayFeedback);
   delayIn.connect(delayTone).connect(delayThin).connect(delayLeft);
   delayLeft.connect(feedbackRight).connect(delayRight);
   delayRight.connect(feedbackLeft).connect(delayTone);
   const delayOut = ctx.createChannelMerger(2);
   delayLeft.connect(delayOut, 0, 0);
   delayRight.connect(delayOut, 0, 1);
-  const delayReturn = gain(LEVEL.delayReturn);
+  const delayReturn = gain(LEVEL.delayReturn * lv('delay'));
   delayOut.connect(delayReturn).connect(premaster);
   delayReturn.connect(gain(0.25)).connect(reverbIn);
 
   // ---- Drums
   const drums = gain(1);
   drums.connect(premaster);
-  const kick = gain(LEVEL.kick);
+  const kick = gain(LEVEL.kick * lv('kick'));
   const kickDrive = ctx.createWaveShaper();
-  const drive = LEVEL.kickDrive;
+  const drive = sound.kickDrive;
   kickDrive.curve = shaperCurve((x) => Math.tanh(drive * x) / Math.tanh(drive));
   kick.connect(kickDrive).connect(drums);
-  const snare = gain(LEVEL.snare);
+  const snare = gain(LEVEL.snare * lv('snare'));
   snare.connect(drums);
   snare.connect(gain(LEVEL.snareToReverb)).connect(reverbIn);
-  const gated = gain(LEVEL.snare);
+  const gated = gain(LEVEL.snare * lv('snare'));
   const gatedRoom = ctx.createConvolver();
   gatedRoom.normalize = false;
   gatedRoom.buffer = gatedImpulse(ctx, 0.3, rng.fork(2));
   gated.connect(gatedRoom).connect(filter('highpass', 280)).connect(filter('lowpass', 4800)).connect(gain(LEVEL.gatedReturn)).connect(drums);
-  const hats = gain(LEVEL.hats);
+  const hats = gain(LEVEL.hats * lv('hats'));
   hats.connect(drums);
-  const perc = gain(LEVEL.perc);
+  const perc = gain(LEVEL.perc * lv('perc'));
   perc.connect(drums);
 
   // ---- Bass
-  const bass = gain(LEVEL.bass);
+  const bass = gain(LEVEL.bass * lv('bass'));
   const bassDuck = gain(1);
-  bass.connect(bassDuck).connect(premaster);
+  if (sound.bassDrive > 0) {
+    // Drive, then take the fizz off the top; the shaper's output is normalised to its input range.
+    const shaper = ctx.createWaveShaper();
+    const amount = sound.bassDrive;
+    shaper.curve = shaperCurve((x) => Math.tanh(amount * x) / Math.tanh(amount));
+    shaper.oversample = '2x';
+    bass.connect(gain(1.6)).connect(shaper).connect(filter('lowpass', 2600, 0.8)).connect(gain(0.55)).connect(bassDuck);
+  } else {
+    bass.connect(bassDuck);
+  }
+  bassDuck.connect(premaster);
 
   // ---- Pad: thinned below the bass, widened by a two-voice chorus, ducked by the kick
-  const pad = gain(LEVEL.pad);
+  const pad = gain(LEVEL.pad * lv('pad'));
   const padBody = filter('highpass', 150);
   const padDuck = stereo(1);
   pad.connect(padBody).connect(gain(0.6)).connect(padDuck);
@@ -339,8 +434,8 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   const chorusRight = ctx.createDelay(0.05);
   chorusLeft.delayTime.value = 0.017;
   chorusRight.delayTime.value = 0.023;
-  lfo(0.31, 0.0035, chorusLeft.delayTime);
-  lfo(0.47, 0.0042, chorusRight.delayTime);
+  lfo(0.31, 0.0035 * sound.chorusDepth, chorusLeft.delayTime);
+  lfo(0.47, 0.0042 * sound.chorusDepth, chorusRight.delayTime);
   padBody.connect(chorusLeft).connect(chorusOut, 0, 0);
   padBody.connect(chorusRight).connect(chorusOut, 0, 1);
   chorusOut.connect(gain(LEVEL.padChorusWet)).connect(padDuck);
@@ -348,12 +443,12 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   padDuck.connect(gain(LEVEL.padToReverb)).connect(reverbIn);
 
   // ---- Arpeggio and lead
-  const arp = gain(LEVEL.arp);
+  const arp = gain(LEVEL.arp * lv('arp'));
   const arpDuck = gain(1);
   arp.connect(arpDuck).connect(premaster);
   arp.connect(gain(LEVEL.arpToDelay)).connect(delayIn);
   arp.connect(gain(LEVEL.arpToReverb)).connect(reverbIn);
-  const lead = gain(LEVEL.lead);
+  const lead = gain(LEVEL.lead * lv('lead'));
   lead.connect(premaster);
   lead.connect(gain(LEVEL.leadToDelay)).connect(delayIn);
   lead.connect(gain(LEVEL.leadToReverb)).connect(reverbIn);
@@ -381,13 +476,15 @@ export function createMix(ctx: BaseAudioContext, options: MixOptions = {}): Mix 
   // automation dies with its source, so nothing accumulates on a long-lived parameter however
   // long the music plays.
   const duckBus = gain(1);
-  duckBus.connect(gain(DUCK.pad)).connect(padDuck.gain);
-  duckBus.connect(gain(DUCK.bass)).connect(bassDuck.gain);
-  duckBus.connect(gain(DUCK.arp)).connect(arpDuck.gain);
+  const duckDepth = (d: number): number => Math.min(0.9, d * sound.duck);
+  duckBus.connect(gain(duckDepth(DUCK.pad))).connect(padDuck.gain);
+  duckBus.connect(gain(duckDepth(DUCK.bass))).connect(bassDuck.gain);
+  duckBus.connect(gain(duckDepth(DUCK.arp))).connect(arpDuck.gain);
   let lastDuck = Number.NEGATIVE_INFINITY;
 
   return {
     ctx,
+    sound,
     kick,
     snare,
     gated,

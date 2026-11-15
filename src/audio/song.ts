@@ -5,8 +5,12 @@
 // minor), a verse and a chorus chord progression, bass and arpeggio patterns and a two-bar lead
 // motif pair, all drawn from its own seeded generator, and a form of six to eight 8-bar sections.
 // The key moves at every movement boundary, always across a quiet section.
+//
+// A SongStyle holds what makes one radio station's music its own: the scale, the chord
+// progressions, the bass and arpeggio patterns and the drum groove. The tables below are the
+// first station's, and `createSong(seed)` with no style plays exactly the song it always did.
 import { createRng, hashInts, type Rng } from '../core/random';
-import { degreeToSemitones, DEGREES, intervalFrom, mod, placeAtOrAbove, snapToChord } from './theory';
+import { degreeToSemitones, DEGREES, intervalFrom, MINOR_SCALE, mod, placeAtOrAbove, snapToChord } from './theory';
 
 export const BEATS_PER_BAR = 4;
 export const STEPS_PER_BAR = 16;
@@ -93,8 +97,46 @@ export interface Bar {
   readonly events: readonly NoteEvent[];
 }
 
+/**
+ * How the drums play. `four`: four on the floor, snare on two and four, hats busier in a chorus.
+ * `drive`: the same, harder, sixteenth hats throughout and extra kicks. `half`: half time, kick on
+ * one and the and of three, snare on three. `disco`: four on the floor with an open hat on every
+ * off-beat and syndrum tom pickups. `lazy`: kick on one, the and of two and the and of three, snare
+ * on two and four, eighth hats.
+ */
+export type Groove = 'four' | 'drive' | 'half' | 'disco' | 'lazy';
+
+export interface SongStyle {
+  /** Seven semitone offsets above the tonic. Chord roots and progressions count degrees of it. */
+  readonly scale: readonly number[];
+  /** Tonics a song may open in. */
+  readonly homeKeys: readonly number[];
+  /** Four-bar progressions that start on the tonic, as scale degrees. */
+  readonly homeProgressions: readonly (readonly number[])[];
+  /** Progressions that start away from the tonic, for the lift into a chorus. */
+  readonly liftProgressions: readonly (readonly number[])[];
+  /** Roots that replace a tonic chord in the last bar of a section; the first is chosen 60 % of the time. */
+  readonly turnarounds: readonly [number, number];
+  /** `rich`: each chord adds a seventh or a ninth. `plain`: it doubles its root an octave up instead. */
+  readonly colour: 'rich' | 'plain';
+  /** Take the ninth wherever a seventh would make a dominant seventh chord. */
+  readonly avoidDominant: boolean;
+  /** Sixteen steps each, as scale steps above the chord root; -1 rests. */
+  readonly bassPatterns: readonly (readonly number[])[];
+  /** True: a bass note holds until the next one starts. False: every bass note is short. */
+  readonly bassLegato: boolean;
+  /** Sixteen steps each, as rungs of the chord ladder. */
+  readonly arpPatterns: readonly (readonly number[])[];
+  /** 1: the arpeggio runs in sixteenths where it runs at full speed; 2: in eighths. */
+  readonly arpEvery: 1 | 2;
+  readonly groove: Groove;
+  /** Off-beat eighths come late by this fraction of a sixteenth; 0 is straight time. */
+  readonly swing: number;
+}
+
 export interface Song {
   readonly seed: number;
+  readonly style: SongStyle;
   /** The events of one bar. Bars count from 0; a negative or fractional index is clamped and floored. */
   bar(index: number): Bar;
   sectionAt(bar: number): SectionInfo;
@@ -157,6 +199,23 @@ const ARP_PATTERNS: readonly (readonly number[])[] = [
   [3, 2, 1, 0, 3, 2, 1, 0, 4, 3, 2, 1, 4, 3, 2, 1],
 ];
 
+/** The first station's style: the song this module has always played. */
+export const SUNSET_STYLE: SongStyle = {
+  scale: MINOR_SCALE,
+  homeKeys: HOME_KEYS,
+  homeProgressions: HOME_PROGRESSIONS,
+  liftProgressions: LIFT_PROGRESSIONS,
+  turnarounds: [6, 4],
+  colour: 'rich',
+  avoidDominant: true,
+  bassPatterns: BASS_PATTERNS,
+  bassLegato: false,
+  arpPatterns: ARP_PATTERNS,
+  arpEvery: 1,
+  groove: 'four',
+  swing: 0,
+};
+
 /** Onset steps of the first, busier bar of a lead motif. */
 const CALL_RHYTHMS: readonly (readonly number[])[] = [
   [0, 3, 6, 8, 12],
@@ -216,6 +275,7 @@ interface MotifNote {
 type Motif = readonly [readonly MotifNote[], readonly MotifNote[]];
 
 interface Movement {
+  readonly style: SongStyle;
   readonly index: number;
   readonly startBar: number;
   readonly firstSection: number;
@@ -240,18 +300,20 @@ function movementBars(mv: Movement): number {
   return mv.kinds.length * BARS_PER_SECTION;
 }
 
-function toChords(roots: readonly number[], rng: Rng): Chord[] {
-  return roots.map((root) => ({ root, colour: colourFor(root, rng.chance(0.5)) }));
+function toChords(style: SongStyle, roots: readonly number[], rng: Rng): Chord[] {
+  return roots.map((root) => ({ root, colour: colourFor(style, root, rng.chance(0.5)) }));
 }
 
 /**
- * The colour note for the chord on `root`: a ninth (8 scale steps) or a seventh (6). Two chords
- * have no choice. A seventh on VII is a dominant seventh, which pulls to the relative major, so
- * VII takes the ninth; the ninth on v is a minor ninth, a clash, so v takes the seventh.
+ * The colour note for the chord on `root`: a ninth (8 scale steps) or a seventh (6), or with a
+ * plain style the root an octave up (7). A ninth a semitone over the octave (on v in minor) is a
+ * clash, so that chord takes the seventh. Where the style avoids them, a chord whose seventh would
+ * make a dominant seventh (VII in minor, which pulls to the relative major) takes the ninth.
  */
-function colourFor(root: number, preferNinth: boolean): number {
-  if (root === 6) return 8;
-  if (root === 4) return 6;
+export function colourFor(style: SongStyle, root: number, preferNinth: boolean): number {
+  if (style.colour === 'plain') return DEGREES;
+  if (intervalFrom(root, 8, style.scale) === 13) return 6;
+  if (style.avoidDominant && intervalFrom(root, 2, style.scale) === 4 && intervalFrom(root, 6, style.scale) === 10) return 8;
   return preferNinth ? 8 : 6;
 }
 
@@ -282,38 +344,43 @@ function buildMotif(rng: Rng, start: number): Motif {
   return [call, answer];
 }
 
-function buildMovement(seed: number, index: number, previous: Movement | undefined): Movement {
+function buildMovement(style: SongStyle, seed: number, index: number, previous: Movement | undefined): Movement {
   const rng = createRng(hashInts(seed, 0x5eed, index));
-  const tonic = previous ? mod(previous.tonic + rng.pick(KEY_MOVES), 12) : rng.pick(HOME_KEYS);
+  const tonic = previous ? mod(previous.tonic + rng.pick(KEY_MOVES), 12) : rng.pick(style.homeKeys);
   const kinds = previous ? rng.pick(LATER_FORMS) : FIRST_FORM;
   const seen: Record<SectionKind, number> = { intro: 0, verse: 0, chorus: 0, break: 0 };
   const variants = kinds.map((kind) => seen[kind]++);
 
-  const verseRoots = rng.pick(HOME_PROGRESSIONS);
-  let chorusRoots = rng.chance(0.75) ? rng.pick(LIFT_PROGRESSIONS) : rng.pick(HOME_PROGRESSIONS);
-  if (chorusRoots === verseRoots) chorusRoots = LIFT_PROGRESSIONS[index % LIFT_PROGRESSIONS.length]!;
+  const home = style.homeProgressions;
+  const lift = style.liftProgressions;
+  const verseRoots = rng.pick(home);
+  let chorusRoots = rng.chance(0.75) ? rng.pick(lift) : rng.pick(home);
+  if (chorusRoots === verseRoots) chorusRoots = lift[index % lift.length]!;
 
-  const bassVerse = rng.pick(BASS_PATTERNS);
-  let bassChorus = rng.pick(BASS_PATTERNS);
-  if (bassChorus === bassVerse) bassChorus = BASS_PATTERNS[(BASS_PATTERNS.indexOf(bassVerse) + 3) % BASS_PATTERNS.length]!;
+  const basses = style.bassPatterns;
+  const bassVerse = rng.pick(basses);
+  let bassChorus = rng.pick(basses);
+  if (bassChorus === bassVerse) bassChorus = basses[(basses.indexOf(bassVerse) + 3) % basses.length]!;
 
   const startA = rng.pick([0, 2, 4, 7]);
   const motifA = buildMotif(rng.fork(1), startA);
   const motifB = buildMotif(rng.fork(2), Math.min(LEAD_HIGH, startA + rng.int(2, 4)));
 
+  const [turnA, turnB] = style.turnarounds;
   return {
+    style,
     index,
     startBar: previous ? previous.startBar + movementBars(previous) : 0,
     firstSection: previous ? previous.firstSection + previous.kinds.length : 0,
     kinds,
     variants,
     tonic,
-    verse: toChords(verseRoots, rng),
-    chorus: toChords(chorusRoots, rng),
-    turnaround: rng.chance(0.6) ? { root: 6, colour: colourFor(6, true) } : { root: 4, colour: colourFor(4, true) },
+    verse: toChords(style, verseRoots, rng),
+    chorus: toChords(style, chorusRoots, rng),
+    turnaround: rng.chance(0.6) ? { root: turnA, colour: colourFor(style, turnA, true) } : { root: turnB, colour: colourFor(style, turnB, true) },
     bassVerse,
     bassChorus,
-    arp: rng.pick(ARP_PATTERNS),
+    arp: rng.pick(style.arpPatterns),
     motifA,
     motifB,
     answerShift: rng.pick([-2, -1, 1, 2]),
@@ -371,25 +438,36 @@ function fillFor(kind: SectionKind, nextKind: SectionKind, b: number): Fill {
   return 'turn';
 }
 
-function drums(out: NoteEvent[], section: SectionInfo, b: number, rng: Rng): void {
+/** Kick and snare steps of each groove's bar. */
+const KICK_STEPS: Readonly<Record<Groove, readonly number[]>> = {
+  four: [0, 4, 8, 12], drive: [0, 4, 8, 12], disco: [0, 4, 8, 12], half: [0, 10], lazy: [0, 6, 10],
+};
+const SNARE_STEPS: Readonly<Record<Groove, readonly number[]>> = {
+  four: [4, 12], drive: [4, 12], disco: [4, 12], half: [8], lazy: [4, 12],
+};
+
+function drums(out: NoteEvent[], style: SongStyle, section: SectionInfo, b: number, rng: Rng): void {
   const { kind, variant, nextKind, prevKind } = section;
+  const g = style.groove;
   const groove = kind === 'verse' || kind === 'chorus';
   const introGroove = kind === 'intro' && b >= 4;
   const breakBuild = kind === 'break' && b >= 4;
   const fill = fillFor(kind, nextKind, b);
 
-  // Four on the floor.
+  // The kick: four on the floor, or the groove's own pattern.
   if (groove || introGroove) {
     const hit = kind === 'chorus' ? 1 : kind === 'verse' ? 0.86 : 0.72;
-    for (let beat = 0; beat < BEATS_PER_BAR; beat++) push(out, Voice.kick, beat * 4, 1, 0, hit);
+    const kicks = KICK_STEPS[g];
+    for (let i = 0; i < kicks.length; i++) push(out, Voice.kick, kicks[i]!, 1, 0, i === 0 ? hit : hit * (g === 'lazy' || g === 'half' ? 0.85 : 1));
   }
   if (kind === 'chorus' && (b === 1 || b === 5) && rng.chance(0.4)) push(out, Voice.kick, 14, 1, 0, 0.7);
+  // Driving music pushes into every other bar.
+  if (g === 'drive' && groove && (b & 1) === 1 && b !== BARS_PER_SECTION - 1) push(out, Voice.kick, 14, 1, 0, 0.62);
 
-  // The big snare on 2 and 4.
+  // The big snare on 2 and 4 (on 3 in half time).
   if (groove) {
     const hit = kind === 'chorus' ? 1 : 0.88;
-    push(out, Voice.snare, 4, 2, 0, hit, 0.9);
-    push(out, Voice.snare, 12, 2, 0, hit, 0.9);
+    for (const step of SNARE_STEPS[g]) push(out, Voice.snare, step, 2, 0, hit, 0.9);
   }
   if (kind === 'intro' && b === 7) push(out, Voice.snare, 12, 1, 0, 0.9, 0.9);
   // A break ends in a snare build: quarters, then eighths, then sixteenths.
@@ -419,16 +497,30 @@ function drums(out: NoteEvent[], section: SectionInfo, b: number, rng: Rng): voi
     push(out, Voice.snare, 15, 1, 0, kind === 'chorus' ? 0.72 : 0.55, 0.5);
   }
 
+  // Syndrum pickups.
+  if (g === 'disco' && groove && fill === 'none' && (b & 3) === 3) {
+    push(out, Voice.tom, 14, 1, TOM_HIGH + 2, 0.55, 0.4);
+    push(out, Voice.tom, 15, 1, TOM_HIGH, 0.65, 0.4);
+  }
+
   // Hats: eighths in a verse, sixteenths in a chorus, with open hats on the off-beats.
   if (groove || introGroove || breakBuild) {
-    const sixteenths = kind === 'chorus' || (kind === 'verse' && variant >= 1 && b >= 4);
+    const sixteenths = g === 'half' || g === 'lazy' ? false
+      : g === 'drive' ? kind !== 'intro'
+        : kind === 'chorus' || (kind === 'verse' && variant >= 1 && b >= 4);
     const stop = fill === 'lift' ? 12 : fill === 'drop' ? 8 : STEPS_PER_BAR;
-    const level = kind === 'intro' ? 0.7 : kind === 'break' ? 0.55 : 1;
+    const level = (kind === 'intro' ? 0.7 : kind === 'break' ? 0.55 : 1) * (g === 'half' ? 0.75 : 1);
     for (let step = 0; step < stop; step++) {
       const offBeat = step % 4 === 2;
-      const open = kind === 'chorus'
-        ? offBeat && (variant >= 1 || step === 6 || step === 14)
-        : kind === 'verse' && step === 14 && (b & 1) === 1;
+      let open: boolean;
+      if (g === 'disco') open = offBeat && kind !== 'break';
+      else if (g === 'half') open = step === 14 && (b & 3) === 3;
+      else if (g === 'lazy') open = step === 14 && (b & 1) === 1 && kind !== 'break';
+      else {
+        open = kind === 'chorus'
+          ? offBeat && (variant >= 1 || step === 6 || step === 14)
+          : kind === 'verse' && step === 14 && (b & 1) === 1;
+      }
       const jitter = 0.94 + 0.12 * rng.next();
       if (open) {
         push(out, Voice.openHat, step, 2, 0, 0.7 * level * jitter, 0.5, -0.18);
@@ -457,7 +549,8 @@ function drums(out: NoteEvent[], section: SectionInfo, b: number, rng: Rng): voi
 
 function bass(out: NoteEvent[], mv: Movement, section: SectionInfo, b: number, chord: Chord): void {
   const { kind, variant } = section;
-  const root = placeAtOrAbove(mv.tonic + degreeToSemitones(chord.root), BASS_LOW);
+  const { scale, bassLegato } = mv.style;
+  const root = placeAtOrAbove(mv.tonic + degreeToSemitones(chord.root, scale), BASS_LOW);
   if (kind === 'break') {
     // One long dark note a bar.
     push(out, Voice.bass, 0, 15.5, root, 0.8, 0.1 + 0.04 * b);
@@ -465,6 +558,11 @@ function bass(out: NoteEvent[], mv: Movement, section: SectionInfo, b: number, c
   }
   if (kind === 'intro') {
     if (b < 4) return;
+    if (bassLegato) {
+      push(out, Voice.bass, 0, 7.6, root, 0.72, 0.25);
+      push(out, Voice.bass, 8, 7.6, root, 0.6, 0.25);
+      return;
+    }
     for (let step = 0; step < STEPS_PER_BAR; step += 2) push(out, Voice.bass, step, 1.6, root, step % 4 === 0 ? 0.72 : 0.56, 0.25);
     return;
   }
@@ -475,7 +573,13 @@ function bass(out: NoteEvent[], mv: Movement, section: SectionInfo, b: number, c
     const offset = pattern[step]!;
     if (offset < 0) continue;
     const accent = step % 4 === 0 ? 1 : step % 4 === 2 ? 0.86 : 0.74;
-    push(out, Voice.bass, step, 0.8, root + intervalFrom(chord.root, offset), accent * level, tone);
+    let length = 0.8;
+    if (bassLegato) {
+      let next = step + 1;
+      while (next < STEPS_PER_BAR && pattern[next]! < 0) next++;
+      length = next - step - 0.3;
+    }
+    push(out, Voice.bass, step, length, root + intervalFrom(chord.root, offset, scale), accent * level, tone);
   }
 }
 
@@ -483,9 +587,9 @@ function bass(out: NoteEvent[], mv: Movement, section: SectionInfo, b: number, c
  * The four notes of a chord. The triad is voiced inside one octave, so chords move by small steps;
  * the colour note sits on top, and goes up an octave rather than rub a semitone against the triad.
  */
-export function padVoicing(tonic: number, chord: Chord): number[] {
-  const notes = TRIAD.map((k) => placeAtOrAbove(tonic + degreeToSemitones(chord.root + k), PAD_LOW));
-  let colour = placeAtOrAbove(tonic + degreeToSemitones(chord.root + chord.colour), PAD_COLOUR_LOW);
+export function padVoicing(tonic: number, chord: Chord, scale: readonly number[] = MINOR_SCALE): number[] {
+  const notes = TRIAD.map((k) => placeAtOrAbove(tonic + degreeToSemitones(chord.root + k, scale), PAD_LOW));
+  let colour = placeAtOrAbove(tonic + degreeToSemitones(chord.root + chord.colour, scale), PAD_COLOUR_LOW);
   if (notes.some((n) => Math.abs(n - colour) === 1)) colour += 12;
   notes.push(colour);
   return notes.sort((a, c) => a - c);
@@ -505,7 +609,7 @@ function pad(out: NoteEvent[], mv: Movement, section: SectionInfo, sectionInMove
   else if (kind === 'chorus') { tone = 0.75; velocity = 1; }
   else { tone = 0.3 + 0.05 * b; velocity = 0.9; }
   // Spread the chord across the stereo field, inner notes nearer the middle.
-  const notes = padVoicing(mv.tonic, chord);
+  const notes = padVoicing(mv.tonic, chord, mv.style.scale);
   for (let i = 0; i < notes.length; i++) push(out, Voice.pad, 0, steps, notes[i]!, velocity, tone, PAD_PANS[i % PAD_PANS.length]!);
 }
 
@@ -522,13 +626,16 @@ function arp(out: NoteEvent[], mv: Movement, section: SectionInfo, b: number, ch
     tone = 0.4;
   } else if (kind === 'chorus') { every = 1; velocity = 0.62; tone = 0.6; }
   else { every = 1; velocity = 0.8; tone = 0.25 + 0.09 * b; }
-  const base = placeAtOrAbove(mv.tonic + degreeToSemitones(chord.root), ARP_LOW);
+  const scale = mv.style.scale;
+  every *= mv.style.arpEvery;
+  const base = placeAtOrAbove(mv.tonic + degreeToSemitones(chord.root, scale), ARP_LOW);
   for (let step = 0; step < STEPS_PER_BAR; step += every) {
     const rung = mv.arp[step]!;
     const steps = 2 * (rung % 3) + DEGREES * Math.floor(rung / 3);
     const accent = step % 4 === 0 ? 1 : 0.8;
     const jitter = 0.94 + 0.12 * rng.next();
-    push(out, Voice.arp, step, 1, base + intervalFrom(chord.root, steps), velocity * accent * jitter, tone, (step & 1) === 1 ? 0.45 : -0.45);
+    const slow = mv.style.arpEvery;
+    push(out, Voice.arp, step, slow, base + intervalFrom(chord.root, steps, scale), velocity * accent * jitter, tone, ((step / slow) & 1) === 1 ? 0.45 : -0.45);
   }
 }
 
@@ -564,7 +671,7 @@ function lead(
         do degree += direction; while (!TRIAD.includes(mod(degree - chord.root, DEGREES)));
       }
     }
-    const midi = tonic + degreeToSemitones(degree);
+    const midi = tonic + degreeToSemitones(degree, mv.style.scale);
     const legato = previousEnd === n.step && Math.abs(previousMidi - midi) <= 7;
     push(out, Voice.lead, n.step, n.length * 0.94, midi, velocity * (n.step % 4 === 0 ? 1 : 0.88), tone, 0, legato ? previousMidi - midi : 0);
     previousEnd = n.step + n.length;
@@ -590,14 +697,24 @@ function ambience(out: NoteEvent[], seed: number, bar: number): void {
 
 const BAR_CACHE = 16;
 
-export function createSong(seed = 1): Song {
+/** Off-beat eighths of a swung style come late; nothing else moves. */
+function swingEvents(events: NoteEvent[], swing: number): void {
+  const delay = swing * STEP_BEATS;
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]!;
+    const step = event.beat / STEP_BEATS;
+    if (Number.isInteger(step) && step % 4 === 2) events[i] = { ...event, beat: event.beat + delay };
+  }
+}
+
+export function createSong(seed = 1, style: SongStyle = SUNSET_STYLE): Song {
   const movements: Movement[] = [];
   const cache = new Map<number, Bar>();
 
   function movementFor(bar: number): Movement {
     let last = movements[movements.length - 1];
     while (!last || last.startBar + movementBars(last) <= bar) {
-      last = buildMovement(seed, movements.length, last);
+      last = buildMovement(style, seed, movements.length, last);
       movements.push(last);
     }
     // No movement is longer than the longest form, so this index never overshoots.
@@ -643,7 +760,7 @@ export function createSong(seed = 1): Song {
     const rng = createRng(hashInts(seed, 0xba5, index));
     const events: NoteEvent[] = [];
 
-    drums(events, section, b, rng.fork(1));
+    drums(events, style, section, b, rng.fork(1));
     bass(events, mv, section, b, chord);
     pad(events, mv, section, s, b, chord);
     arp(events, mv, section, b, chord, rng.fork(2));
@@ -660,6 +777,7 @@ export function createSong(seed = 1): Song {
       }
     }
     ambience(events, seed, index);
+    if (style.swing > 0) swingEvents(events, style.swing);
 
     events.sort((a, c) => a.beat - c.beat || a.voice - c.voice);
     return { index, section, barInSection: b, chord, energy: barEnergy(section.kind, section.variant, b), events };
@@ -684,6 +802,7 @@ export function createSong(seed = 1): Song {
 
   return {
     seed,
+    style,
     bar,
     sectionAt(index: number): SectionInfo {
       const i = clampBar(index);

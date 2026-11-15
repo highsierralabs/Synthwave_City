@@ -12,7 +12,7 @@ describe('theory', () => {
   });
 
   it('degreeToSemitones walks the natural minor scale through every octave', () => {
-    expect([0, 1, 2, 3, 4, 5, 6].map(degreeToSemitones)).toEqual([...MINOR_SCALE]);
+    expect([0, 1, 2, 3, 4, 5, 6].map((d) => degreeToSemitones(d))).toEqual([...MINOR_SCALE]);
     expect(degreeToSemitones(7)).toBe(12);
     expect(degreeToSemitones(9)).toBe(15);
     expect(degreeToSemitones(-1)).toBe(-2);

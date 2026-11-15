@@ -1,11 +1,17 @@
 // The live side: one AudioContext made inside a gesture, the lookahead timer, suspend and resume,
 // tab hide and show, and the beat the picture follows. Everything musical lives in song.ts, and the
 // sound in mix.ts and voices.ts; this file only keeps them running against the audio clock.
+//
+// Radio (M6). Every station keeps time from the moment the music first started, as if all five had
+// been broadcasting all along: tuning to one lands somewhere in its song, at the start of the bar in
+// progress, after a short burst of tuning noise. A switch builds a fresh mixer for the new station
+// on the same AudioContext and fades the old one out, so nothing that was ringing is cut short.
 import type { BeatSource } from '../contracts/audio';
 import { createMix, type Mix } from './mix';
-import { createSong } from './song';
-import { BEATS_PER_SECOND, beatAt, createClockSmoother, createScheduler, SECONDS_PER_BEAT, timeAt, type Emit } from './transport';
-import { playEvent } from './voices';
+import { BEATS_PER_BAR, createSong, type Song } from './song';
+import { DEFAULT_STATION, isStationId, STATIONS, stationSeed, type StationId } from './stations';
+import { beatAt, createClockSmoother, createScheduler, timeAt, type Emit, type Scheduler } from './transport';
+import { playEvent, tuning } from './voices';
 
 /**
  * `idle`: `start()` has not been called, and there is no AudioContext.
@@ -24,6 +30,8 @@ export interface AudioOptions {
   volume?: number | undefined;
   /** Default false. */
   muted?: boolean | undefined;
+  /** The station to play. Default `sunset`. */
+  station?: StationId | undefined;
 }
 
 export interface AudioSystem {
@@ -40,6 +48,13 @@ export interface AudioSystem {
   setVolume(volume: number): void;
   /** Silence without stopping: the beat keeps running. */
   setMuted(muted: boolean): void;
+  /**
+   * Tune to another station. Before `start()` it only chooses what will play. While playing, a
+   * short burst of tuning noise covers the change and the station comes in mid-song. An unknown id
+   * or the current station changes nothing.
+   */
+  setStation(id: StationId): void;
+  readonly station: StationId;
   /** Beat position from the audio clock; null whenever `state` is not `running`. */
   readonly beat: BeatSource;
   readonly state: AudioState;
@@ -61,6 +76,8 @@ export interface PlayerDebug {
   late: number;
   dropped: number;
   ticks: number;
+  station: StationId;
+  bpm: number;
 }
 
 export interface Player {
@@ -84,6 +101,10 @@ const SUSPEND_DELAY_MS = 70;
 const SETTLE_MS = 400;
 /** Never trust a reported output latency beyond this. */
 const MAX_LATENCY = 0.3;
+/** Seconds of tuning noise between two stations. */
+export const TUNE_SECONDS = 0.45;
+/** How long a mixer that was tuned away from keeps running while its fade completes. */
+const RETIRE_MS = 600;
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -91,8 +112,10 @@ function clamp01(v: number): number {
 
 export function createPlayer(options: AudioOptions = {}): Player {
   const seed = options.seed ?? 1;
-  const song = createSong(seed);
-  const scheduler = createScheduler(song);
+  let stationId: StationId = isStationId(options.station) ? options.station : DEFAULT_STATION;
+  let song: Song = createSong(stationSeed(stationId, seed), STATIONS[stationId].song);
+  let bpm = STATIONS[stationId].sound.bpm;
+  let scheduler: Scheduler = createScheduler(song);
   const smoother = createClockSmoother();
 
   let volume = clamp01(options.volume ?? DEFAULT_VOLUME);
@@ -100,7 +123,11 @@ export function createPlayer(options: AudioOptions = {}): Player {
 
   let ctx: AudioContext | null = null;
   let mix: Mix | null = null;
+  /** Audio-clock time of beat 0 of every station's song: when the music first started. */
   let startTime = 0;
+  /** Nothing is scheduled before this time; the tuning noise plays until then. */
+  let quietUntil = 0;
+  const retiring: { mix: Mix; timer: ReturnType<typeof setTimeout> }[] = [];
   let latency = 0;
   let ticks = 0;
   let unavailable = false;
@@ -119,14 +146,58 @@ export function createPlayer(options: AudioOptions = {}): Player {
   const level = (): number => (muted ? 0 : volume * volume);
 
   const emit: Emit = (event, beat, duration) => {
-    if (mix) playEvent(mix, event, timeAt(beat, startTime), duration * SECONDS_PER_BEAT);
+    if (mix) playEvent(mix, event, timeAt(beat, startTime, bpm), (duration * 60) / bpm);
   };
 
   function tick(): void {
     if (!ctx || !running()) return;
     ticks++;
+    const now = Math.max(ctx.currentTime, quietUntil);
+    scheduler.advance(beatAt(now, startTime, bpm), beatAt(now + LOOKAHEAD, startTime, bpm), emit);
+  }
+
+  function retire(old: Mix, time: number): void {
+    old.fadeOut(time);
+    const entry = {
+      mix: old,
+      timer: setTimeout(() => {
+        old.dispose();
+        retiring.splice(retiring.indexOf(entry), 1);
+      }, RETIRE_MS),
+    };
+    retiring.push(entry);
+  }
+
+  /** Point the player at `id`: its song, its tempo and, once there is a context, its mixer. */
+  function tune(id: StationId): void {
+    stationId = id;
+    const station = STATIONS[id];
+    song = createSong(stationSeed(id, seed), station.song);
+    bpm = station.sound.bpm;
+    if (!ctx || !mix) {
+      // Not started: the new station starts from its first bar, like the first one would have.
+      scheduler = createScheduler(song);
+      return;
+    }
     const now = ctx.currentTime;
-    scheduler.advance(beatAt(now, startTime), beatAt(now + LOOKAHEAD, startTime), emit);
+    const live = running();
+    // Come in at the start of the bar in progress once the noise is over; the scheduler drops what
+    // has passed and starts a chord that still has a beat to ring.
+    quietUntil = live ? now + TUNE_SECONDS : now;
+    const inBar = beatAt(Math.max(quietUntil, startTime), startTime, bpm);
+    scheduler = createScheduler(song, Math.floor(inBar / BEATS_PER_BAR) * BEATS_PER_BAR);
+    retire(mix, now);
+    mix = createMix(ctx, { seed, sound: station.sound });
+    mix.setLevel(level(), now);
+    if (live) {
+      mix.fadeIn(now, 0.02);
+      tuning(mix, now, TUNE_SECONDS);
+      open = true;
+      tick();
+    } else {
+      // Suspended or hidden: stay silent; the next opening fades the new mixer in.
+      open = false;
+    }
   }
 
   function stopTimer(): void {
@@ -201,7 +272,7 @@ export function createPlayer(options: AudioOptions = {}): Player {
     if (typeof AudioContext === 'undefined') return false;
     try {
       ctx = new AudioContext({ latencyHint: 'interactive' });
-      mix = createMix(ctx, { seed });
+      mix = createMix(ctx, { seed, sound: STATIONS[stationId].sound });
     } catch (error) {
       console.warn('audio is unavailable:', error);
       if (ctx) ctx.close().catch(() => {});
@@ -223,7 +294,7 @@ export function createPlayer(options: AudioOptions = {}): Player {
     beatPosition(): number | null {
       if (!ctx || !running()) return null;
       const heard = smoother.read(ctx.currentTime, performance.now() / 1000) - latency;
-      const position = (heard - startTime) * BEATS_PER_SECOND;
+      const position = beatAt(heard, startTime, bpm);
       return position > 0 ? position : 0;
     },
     energy(): number {
@@ -258,6 +329,13 @@ export function createPlayer(options: AudioOptions = {}): Player {
       muted = value;
       if (ctx && mix) mix.setLevel(level(), ctx.currentTime);
     },
+    setStation(id: StationId): void {
+      if (disposed || !isStationId(id) || id === stationId) return;
+      tune(id);
+    },
+    get station(): StationId {
+      return stationId;
+    },
     beat,
     get state(): AudioState {
       if (disposed) return 'closed';
@@ -270,6 +348,11 @@ export function createPlayer(options: AudioOptions = {}): Player {
       disposed = true;
       stopTimer();
       clearSuspendTimer();
+      for (const entry of retiring) {
+        clearTimeout(entry.timer);
+        entry.mix.dispose();
+      }
+      retiring.length = 0;
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
       if (ctx) {
         ctx.removeEventListener('statechange', onStateChange);
@@ -298,6 +381,8 @@ export function createPlayer(options: AudioOptions = {}): Player {
         late: scheduler.stats.late,
         dropped: scheduler.stats.dropped,
         ticks,
+        station: stationId,
+        bpm,
       };
     },
   };

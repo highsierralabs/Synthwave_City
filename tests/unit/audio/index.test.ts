@@ -14,7 +14,7 @@ afterEach(() => {
 describe('createAudio', () => {
   it('exposes exactly the surface the app shell is written against', () => {
     const audio = createAudio();
-    expect(Object.keys(audio).sort()).toEqual(['beat', 'dispose', 'resume', 'setMuted', 'setVolume', 'start', 'state', 'suspend']);
+    expect(Object.keys(audio).sort()).toEqual(['beat', 'dispose', 'resume', 'setMuted', 'setStation', 'setVolume', 'start', 'state', 'station', 'suspend']);
     expect(typeof audio.beat.beatPosition).toBe('function');
     expect(typeof audio.beat.energy).toBe('function');
   });
@@ -43,6 +43,19 @@ describe('createAudio', () => {
     await audio.resume();
     expect(audio.state).toBe('idle');
     expect(audio.beat.beatPosition()).toBeNull();
+  });
+
+  it('before start, a station is only chosen; unknown ids and the same station change nothing', () => {
+    const audio = createAudio({ station: 'velvet' });
+    expect(audio.station).toBe('velvet');
+    audio.setStation('plaza');
+    expect(audio.station).toBe('plaza');
+    audio.setStation('nowhere' as never);
+    expect(audio.station).toBe('plaza');
+    expect(audio.state).toBe('idle');
+    expect(audio.beat.beatPosition()).toBeNull();
+    expect(createAudio().station).toBe('sunset');
+    expect(createAudio({ station: 'bogus' as never }).station).toBe('sunset');
   });
 
   it('without Web Audio, start() resolves and the state says unavailable', async () => {

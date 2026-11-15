@@ -5,7 +5,7 @@ status: done
 depends_on: [T00]
 owns: [src/audio/**, tests/unit/audio/**, plans/T10-audio.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # T10: audio
@@ -107,6 +107,29 @@ quiet, plus rare distant whooshes.
 **M5. Check by measurement.** Render through `OfflineAudioContext` in the browser from a scratch page
 under `shots/T10/` and report peak level, RMS, clipping, per-band energy and clicks. Listening is a
 human check.
+
+**M6. Radio stations (2026-11-15, operator request: "5 stations ... each with a distinct synthwave
+sound and billboard").** `src/audio/stations.ts` defines five stations; each is a `SongStyle`
+(`song.ts`: scale, home keys, verse and lift progressions, turnarounds, colour rule, bass and
+arpeggio patterns, legato bass, arpeggio speed, drum groove, swing) and a `SoundStyle` (`mix.ts`:
+tempo, kick shape and drive, snare, bass, pad, arpeggio and lead variants, reverb length, delay
+time and feedback, chorus depth, tape low-pass, tape wobble, side-chain depth, bus levels).
+
+| Station | Genre | BPM | Scale, groove | Sound |
+|---|---|---|---|---|
+| Sunset FM 88.8 | Outrun | 105 | natural minor, four on the floor | the original, unchanged |
+| Obsidian 93.3 | Darksynth | 112 | Phrygian (bII), power chords, `drive` | driven saw bass, dark pads, low hard kick |
+| Velvet 97.1 | Chillwave | 84 | major with 7ths and 9ths, `half` time | round held bass, glass pads, FM bell, breathy lead, long room, light tape wobble |
+| Starport 101.5 | Spacesynth | 120 | Dorian, `disco` (open hat on every off-beat, syndrum pickups) | octave pluck bass, clap, square arpeggio and lead |
+| Plaza 104.3 | Mallsoft | 78 | major with dominant 7ths, `lazy`, swung eighths | FM electric piano, mallet, muted lead, heavy tape wobble and roll-off |
+
+`AudioSystem` gains `setStation(id)` and `station`; `createAudio` takes `station`. Every station
+keeps time from the moment the music first started, as if all five had been broadcasting all along,
+so tuning lands mid-song at the start of the bar in progress, after 0.45 s of tuning noise (a swept
+band of static and a faint whistle). A switch builds a new mixer on the same `AudioContext` and
+fades the old one out (disposed after 0.6 s). The beat follows the station's tempo; the engine
+reads `beatPosition()` as it always has, and falls back to `BPM` only when audio is off. Proof:
+Sunset FM byte-identical to the old song; offline renders of each station; a live switching check.
 
 ## 6. Validation and acceptance
 
@@ -251,6 +274,54 @@ got it running.
   output latency is large.
 - H-T10-5: it starts, suspends on a hidden tab and resumes in Firefox and Safari, and on a phone.
 
+**M6 acceptance (radio), all run on 2026-11-15 on the final code.**
+
+**A9. Sunset FM is the old song, note for note.** A fingerprint (SHA-256 over sections, chords,
+energy and events of bars 0 to 599) of seeds 1, 7, 1984, 2049 and 123456 was recorded before any
+change (`shots/T10/golden/`) and matches after it. The unit test `SUNSET FM is the original
+soundtrack` also compares bars of `createSong(seed)` with the station's song. It caught one real
+change on the way (section 9).
+
+**A10. Unit tests.** `tests/unit/audio/stations.test.ts`, 11 tests: five stations in dial order
+with distinct names, genres and tempos; every note of every station in its own scale over 240
+bars (the scales are written out again in the test); no chord on a diminished triad and no
+semitone rub in any pad; each groove plays as described; Plaza swings only its off-beat eighths;
+deterministic, and no two stations share a bar. Breaking the Phrygian scale (a natural second for
+the flat second) failed the in-scale test; restored and compared. Whole audio suite 68 of 68.
+
+**A11. Offline renders, 32 bars from bar 0 of seed 1, full mix at volume 1** (`node shots/T10/measure.mjs --station <id> --bars 32`):
+
+| Station | Peak dBFS | RMS dBFS | Verse / chorus RMS per bar | In clamp knee | Clicks | Voices dropped, peak active |
+|---|---|---|---|---|---|---|
+| sunset | -6.27 | -18.57 | -18.4 / -17.2 | 0.85 % | 0 | 0, 23 |
+| obsidian | -6.29 | -17.79 | -17.4 / -16.8 | 0.92 % | 0 | 0, 26 |
+| velvet | -6.27 | -18.77 | -18.8 / -17.1 | 0.75 % | 0 | 0, 22 |
+| starport | -6.28 | -18.07 | -18.0 / -16.8 | 0.99 % | 0 | 0, 26 |
+| plaza | -6.25 | -19.07 | -19.1 / -17.2 | 0.79 % | 1 (below) | 0, 20 |
+
+The first renders were 3 dB apart (Obsidian -15.5 dBFS with 3.4 % of samples in the clamp knee,
+its driven bass 5 dB hot). Per-part stems in the first chorus (`--stems --start 24 --bars 8`) set
+the bus levels in `stations.ts`, then a whole-mix level (`level.sum`) evened the stations to within
+about 1 dB of Sunset FM, so changing station does not jump in loudness. Stems show no clicks except
+the kick's own beater (as on Sunset FM). Plaza's single full-mix detection at 26.0004 s is a hat
+landing on a kick: no stem shows it, and `--dump` shows noise-like content, not a step.
+
+**A12. Live switching in Chromium,** `node shots/T10/radio.mjs` (muted browser, every output summed
+into one analyser), 31 of 31: tuning before `start()` makes no context; each station measured at
+its tempo (104.96, 112.00, 84.26, 119.97, 77.92 BPM against 105, 112, 84, 120, 78; no null or
+backward beat); each comes in mid-song within 0.1 beat of the shared clock; tuning noise heard
+(-30 to -33 dBFS RMS over the first 0.4 s); each plays under the ceiling (peaks -6.4 to -7.2 dBFS
+at volume 1); ten switches 80 ms apart never pass the ceiling and end on the last station at its
+tempo with one context and 21 voices; a switch while suspended leaves the context's clock and
+output frozen, and resume plays the new station; a switch on a hidden tab stays silent and showing
+the tab again does not burst; dispose closes. The original live suite, `node shots/T10/live.mjs`,
+still passes 31 of 31 (its surface check now lists `setStation` and `station`).
+
+**Human checks for M6.**
+
+- H-T10-6: each station sounds like its genre and like a different station from the others, and
+  the tuning noise is pleasant rather than harsh. Nobody has listened yet.
+
 ## 7. Idempotence and recovery
 
 No persistent state. `dispose()` closes the context. Every check is safe to re-run. The scratch
@@ -272,6 +343,12 @@ page in the middle of a render.
 - [x] 2026-11-14 Second composition pass after reading the song as text (`measure.mjs --describe`):
   lead keeps its line, pad colour notes no longer rub, the third chorus rises a tone, whooshes
   spaced out. Re-measured afterwards; section 6 is from the final code.
+
+- [x] 2026-11-15 M6 radio: `src/audio/stations.ts`; styles in `song.ts`, `mix.ts`, `voices.ts`;
+  tempo per station in `transport.ts`; `setStation` and the shared clock in `player.ts`; exports in
+  `index.ts`; `tests/unit/audio/stations.test.ts` and two tests in `index.test.ts`. Scratch:
+  `shots/T10/golden/`, `shots/T10/radio.{html,js,mjs}`, `shots/T10/radio_susp.mjs`; `harness.js`
+  and `measure.mjs` take `--station`. Evidence A9 to A12.
 
 Nothing is left open in this plan. The human checks are the remaining work and are not this task's
 to close.
@@ -326,6 +403,19 @@ to close.
   that fell on a beat to a chord tone, which collapsed a motif to `C C C D C`; a major seventh was
   voiced a semitone under its root; a ninth on the v chord is a minor ninth. All three were fixed in
   the composition and are now tested.
+
+- **A theory helper given a scale argument broke `[...].map(degreeToSemitones)` (2026-11-15).**
+  `map` passes the index as the second argument, which became the scale: the theory test received
+  `NaN`s. The test now calls it through an arrow; TypeScript rejects the bare form, so a caller in
+  `src` cannot make the same mistake unnoticed.
+- **The fingerprint caught a change to Sunset FM (2026-11-15).** Making the arpeggio's length and
+  stereo side follow the arpeggio speed changed Sunset FM's slow arpeggio (intro and first verse),
+  where the old code always gave one step and panned by step. Both now follow the station's
+  multiplier only, which is 1 for Sunset FM.
+- **A suspended context freezes an analyser on its last buffer (2026-11-15).** The first radio
+  check read a peak of 0.042 after a switch while suspended; the context's clock stood still at
+  3.120 s and the analyser returned the same samples, captured mid-fade. Silence while suspended is
+  now checked as a stopped clock and an unchanged output.
 
 ## 10. Decision log
 
@@ -383,6 +473,27 @@ All dated 2026-11-14.
 - **The live check runs the browser with `--mute-audio`,** so the tests do not play through this
   machine's speakers. The graph still runs and is measured through an analyser.
 
+- **Five stations are styles of the one generator, not five generators (2026-11-15).** Endless,
+  seeded by the city, and the measured behaviour of M1 to M5 carries over. What makes a station
+  distinct is what a listener hears first in these genres: tempo, scale, groove, bass, and the
+  instruments' timbre.
+- **Sunset FM stays byte-identical (2026-11-15).** Every new knob defaults to the old value, and
+  the optional mixer stages (bass drive, tape wobble, tape low-pass) are only built when a station
+  asks for them. Its song seed is the city seed; the others hash the city seed with their place on
+  the dial.
+- **A station may have its own tempo; `BPM` in the contracts is unchanged (2026-11-15).** The
+  engine already takes the beat from `beatPosition()` and uses `BPM` only when audio is off, so no
+  contract change was needed. `beatAt` and `timeAt` take an optional tempo.
+- **Tuning lands mid-song on a shared clock (2026-11-15).** Radio feels live when a station is
+  somewhere in its song rather than starting over; the start of the bar in progress keeps the
+  entry musical, and the scheduler's existing late-pad rule supplies the harmony at once. The beat
+  jumps at a switch (beat positions differ by tempo), which the picture shows as one pulse.
+- **A new mixer per switch, the old one faded and disposed (2026-11-15).** Simpler than
+  re-patching a running graph, nothing ringing is cut, and voices still scheduled on the old mixer
+  play into a closed gate. Ten switches in 0.8 s peaked at 21 voices.
+- **Loudness evened by measurement, not by a loudness normaliser (2026-11-15).** Per-bus levels plus
+  one whole-mix level per station; all five sit within about 1 dB of Sunset FM.
+
 ## 11. Contract change requests
 
 None. `BeatSource` was enough as it stands.
@@ -424,3 +535,11 @@ from a mix that was 30 dB darker in the highs than in the lows to the table abov
 detector caught a defect I had reasoned was impossible. What numbers could not do was judge the
 music; printing the song as chords and note names was the closest substitute and changed the
 composition more than any spectrum did.
+
+**M6 outcome (2026-11-15).** Five stations, each its own style and sound at its own tempo, switch
+live with tuning noise and land mid-song; Sunset FM is unchanged note for note. Measured: tempo,
+level, ceiling, clicks on stems, switching while playing, suspended and hidden. Not verified: how
+any of it sounds (H-T10-6); any browser but headless Chromium on this machine, and phones; CPU
+cost of the FM and tape voices on a slow device (Velvet and Plaza start about half as many voices
+as Sunset FM, but each FM note is two oscillators); long sessions with many switches beyond the
+ten-switch run.

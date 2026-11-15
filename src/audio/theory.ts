@@ -1,7 +1,15 @@
-// Pitch helpers for the composition: natural minor scale, MIDI numbers, frequencies. Pure.
+// Pitch helpers for the composition: seven-note scales, MIDI numbers, frequencies. Pure.
+// Every scale helper takes the scale as its last argument and defaults to natural minor, the scale
+// of the first station; the other stations pass their own (src/audio/stations.ts).
 
 /** Semitones of the natural minor scale above its tonic. */
 export const MINOR_SCALE: readonly number[] = [0, 2, 3, 5, 7, 8, 10];
+/** Phrygian: natural minor with a flat second, for the darkest station. */
+export const PHRYGIAN_SCALE: readonly number[] = [0, 1, 3, 5, 7, 8, 10];
+/** Dorian: natural minor with a raised sixth, so the chord on IV is major. */
+export const DORIAN_SCALE: readonly number[] = [0, 2, 3, 5, 7, 9, 10];
+/** Major. */
+export const MAJOR_SCALE: readonly number[] = [0, 2, 4, 5, 7, 9, 11];
 
 /** Scale degrees per octave. */
 export const DEGREES = 7;
@@ -16,14 +24,14 @@ export function mod(v: number, m: number): number {
 }
 
 /** Semitones above the tonic of any scale degree: 0 is the tonic, 7 the octave, -1 the seventh below. */
-export function degreeToSemitones(degree: number): number {
+export function degreeToSemitones(degree: number, scale: readonly number[] = MINOR_SCALE): number {
   const octave = Math.floor(degree / DEGREES);
-  return octave * 12 + MINOR_SCALE[degree - octave * DEGREES]!;
+  return octave * 12 + scale[degree - octave * DEGREES]!;
 }
 
 /** Semitones from scale degree `from` up (or down) to `from + steps`. */
-export function intervalFrom(from: number, steps: number): number {
-  return degreeToSemitones(from + steps) - degreeToSemitones(from);
+export function intervalFrom(from: number, steps: number, scale: readonly number[] = MINOR_SCALE): number {
+  return degreeToSemitones(from + steps, scale) - degreeToSemitones(from, scale);
 }
 
 /** The lowest MIDI note at or above `low` whose pitch class is `pitchClass` (any integer, taken mod 12). */
@@ -31,9 +39,9 @@ export function placeAtOrAbove(pitchClass: number, low: number): number {
   return low + mod(pitchClass - low, 12);
 }
 
-/** True when `midi` is a note of the natural minor scale on `tonic` (a pitch class or any MIDI tonic). */
-export function isInScale(midi: number, tonic: number): boolean {
-  return MINOR_SCALE.includes(mod(midi - tonic, 12));
+/** True when `midi` is a note of the scale on `tonic` (a pitch class or any MIDI tonic). */
+export function isInScale(midi: number, tonic: number, scale: readonly number[] = MINOR_SCALE): boolean {
+  return scale.includes(mod(midi - tonic, 12));
 }
 
 /**
