@@ -43,7 +43,7 @@ export const MOODS: Readonly<Record<MoodId, Mood>> = {
     sunTop: hex('#ffe85a', 6.0),
     sunBottom: hex('#ff2f8a', 4.0),
     sunDir: unit(0, 0.075, -1),
-    fogWarm: hex('#c02a86', 0.42),
+    fogWarm: hex('#a8247c', 0.3),
     fogCool: hex('#2c1670', 0.45),
     fog: [0.00011, 0.00055, 1 / 260, 0.96],
     ambient: hex('#20104a', 0.5),
