@@ -176,7 +176,10 @@ In `update` and anything else called per frame: no `new`, no `clone()`, no closu
   varying is extrapolated outside its triangle at edge samples, so a radius that is never negative
   at a vertex can be negative in the fragment shader. One NaN from `pow` was smeared by bloom into
   a black block over half the frame, and only at `q=high` [O: T08]. T05 and T09 hit the same thing
-  with `exp` and `pow`; `post=0` hides it, so test with the pipeline on.
+  with `exp` and `pow`; `post=0` hides it, so test with the pipeline on. Declaring the varyings of
+  additive ribbons as `centroid varying` removes the cause; `isnan()` in the shader did not catch it
+  [O: T07].
+- Ribbons that turn to face the camera need `side: DoubleSide`, or about half are culled [O: T07].
 - Avoid undefined built-ins: `smoothstep` with `edge0 >= edge1`, `clamp` with min above max, `pow`
   with a negative base, `%` on negative ints [M]. Write `1.0 - smoothstep(a, b, x)` with `a < b`.
 - Use `highp` for coordinates and time. This desktop reports 23 bits for `mediump`, so precision bugs

@@ -245,7 +245,8 @@ sky lanes and the camera tour collision-free by construction.
 
 Skyline: a low-frequency height field with a few downtown peaks sets each cell's height class.
 Typical heights are 15 to 60 m in `lowrise`, 60 to 200 m in `midtown`, 180 to 480 m in `downtown`, and
-600 to 900 m for the roughly dozen megatowers.
+600 to 900 m to the top segment for the dozen megatowers, which reach about 1,080 m with crown and
+spire. The per-cell height byte saturates at 1,020 m.
 
 Expected sizes at full density [I]: about 1,600 cells, 9,000 buildings, 16,000 boxes, 550 lanes,
 600 sites.
