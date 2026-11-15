@@ -1,0 +1,6 @@
+# Keep LF in the working tree on every checkout. This machine sets core.autocrlf=true
+# at system level, which would otherwise rewrite text files to CRLF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
