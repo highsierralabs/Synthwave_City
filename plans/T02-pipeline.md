@@ -1,7 +1,7 @@
 ---
 id: T02-pipeline
 title: Frame pipeline: reflection, bloom, tone map, grade
-status: ready
+status: done
 depends_on: [T00]
 owns: [src/post/**, tests/unit/post/**, plans/T02-pipeline.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
@@ -84,20 +84,37 @@ No persistent state. `?post=0` always gives the unprocessed frame for comparison
 
 ## 8. Progress
 
-- [ ] M1 composer and bloom
-- [ ] M2 tone curve and grade
-- [ ] M3 reflection pass
-- [ ] M4 adaptive resolution
-- [ ] M5 precompile
-- [ ] M6 sun shafts (stretch)
+- [x] 2026-11-14 M1 composer and bloom: half-float composer, tier MSAA, mip-chain bloom.
+- [x] 2026-11-14 M2 grade: one custom effect (exposure, tone curve, vignette, scanlines, grain) plus
+  radial chromatic aberration; dithering on. Curve choice is provisional, see the Decision log.
+- [x] 2026-11-14 M3 reflection pass: mirror camera, half-size half-float target with mipmaps.
+- [x] 2026-11-14 M4 adaptive resolution: `adaptive.ts`, five unit tests.
+- [x] 2026-11-14 M5 precompile: `warmUp()` compiles with the composer target bound.
+- [ ] M6 sun shafts (stretch): not built. Left for T13 to take or drop.
+
+Evidence:
+
+    npm run check:task -- T02     -> PASS (5 tests)
+    shot view=high                -> pipeline: post, 18 draw calls (scene 3, mirror 3, effects 12), no errors
+    shot view=street              -> viewed: towers and curb lines mirrored in the road, bases aligned
+    post=0                        -> falls back to the engine's basic pipeline
 
 ## 9. Surprises and discoveries
 
-None yet.
+- Grain added in linear light at a fixed amplitude is enormous in the darks after sRGB encoding (the
+  black sky came out as grey noise). It is now scaled with brightness.
+- The reflection needed no change in any shader: placing geometry relative to the camera's x and z
+  means the mirror camera, which shares them, renders the same world.
 
 ## 10. Decision log
 
-None yet.
+- 2026-11-14: The default tone curve is the custom "neon" curve (a per-channel exponential shoulder
+  blended 45 percent with a luminance-scaled, hue-holding version), with ACES kept behind `?tm=aces`
+  for comparison. This is provisional: with only the probe to look at, both curves give an unclipped
+  frame and the difference cannot be judged. T13 compares them on the finished city.
+- 2026-11-14: Vignette, scanlines and grain live in the same effect as the tone curve instead of three
+  library effects: fewer shader stages, and scanline strength is a uniform, so nothing is toggled at
+  run time.
 
 ## 11. Contract change requests
 
@@ -105,4 +122,7 @@ None.
 
 ## 12. Outcomes and retrospective
 
-Not yet written.
+Done except the stretch milestone. Bloom, grade, reflection and adaptive scale run on the RTX at 18
+draw calls with the probe. Not verified: that no program compiles after the first frame (the warm-up
+exists but was not instrumented); behaviour of the adaptive scale on a real vsynced display (unit
+tests only); the `medium` and `low` tiers on screen; human check H-T02-1.
