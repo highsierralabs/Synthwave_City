@@ -274,6 +274,8 @@ Evidence:
   and `radio-menu-phone.png` (the second was taken mid-transition just after a tap, so two buttons
   are half-coloured; the row shot is steady). `npm run check` 364 of 364; `npm run smoke` SMOKE OK,
   median 6.9 ms, p99 7.1 ms, 59 draw calls.
+- [x] 2026-11-15 README: "Where it came from" links `docs/user_prompt.md`, the operator's starting
+  prompt (T14 owns the file).
 
 ## 9. Surprises and discoveries
 

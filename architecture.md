@@ -468,7 +468,7 @@ without reading any other task's code.
 | T11 | `T11-camera` | `src/camera/**`, `tests/unit/camera/**` | T00, T01 |
 | T12 | `T12-app-shell` | `index.html`, `src/main.ts`, `src/app/**`, `tests/unit/app/**`, `README.md` | all above |
 | T13 | `T13-art-pass` | no paths of its own; a serial window in which it may retune numbers anywhere and log each change | all above |
-| T14 | `T14-release` | `LICENSE`, `THIRD-PARTY-NOTICES.md`, `CONTRIBUTING.md`, `.github/**`, `docs/screenshots/**` | all above |
+| T14 | `T14-release` | `LICENSE`, `THIRD-PARTY-NOTICES.md`, `CONTRIBUTING.md`, `.github/**`, `docs/screenshots/**`, `docs/user_prompt.md` | all above |
 
 Every task also owns its own plan file.
 

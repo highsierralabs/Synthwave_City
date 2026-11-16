@@ -3,9 +3,9 @@ id: T14-release
 title: Public release on GitHub and GitHub Pages
 status: done
 depends_on: [T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13]
-owns: [LICENSE, THIRD-PARTY-NOTICES.md, CONTRIBUTING.md, .github/**, docs/screenshots/**, plans/T14-release.md]
+owns: [LICENSE, THIRD-PARTY-NOTICES.md, CONTRIBUTING.md, .github/**, docs/screenshots/**, docs/user_prompt.md, plans/T14-release.md]
 reads: [architecture.md, Agents.md, README.md, package.json, plans/**]
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # T14: release
@@ -152,6 +152,9 @@ set again, but publication itself cannot be undone: assume anything pushed has b
     private vulnerability reporting, secret scanning and push protection on.
 - [x] 2026-11-14 M6 notes: the workspace `CLAUDE.md` entry says the repository is public, and the
   session memory records that a push to `main` publishes.
+- [x] 2026-11-15 The operator's starting prompt, at the operator's request: `docs/user_prompt.md`
+  holds the first message of the session that began the project (2026-11-14), found in the session
+  transcript. README links it (T12, same revision).
 
 ## 8. Surprises and discoveries
 
@@ -166,6 +169,8 @@ set again, but publication itself cannot be undone: assume anything pushed has b
   by the request; the switch to public is a separate, irreversible act and gets its own release.
 - 2026-11-14: README screenshots are tracked under `docs/screenshots/`. They are documentation, not
   assets of the app: the build does not include them (R2 is about what the app loads).
+- 2026-11-15: `docs/user_prompt.md` is the message as typed, except the local path of the uploaded
+  zip that opened it, left out because it names a user-home folder and the repository is public.
 
 ## 10. Contract change requests
 

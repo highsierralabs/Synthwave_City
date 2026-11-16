@@ -121,7 +121,8 @@ This is a different take on [Afterglow City](https://github.com/J-o-h-n-M/afterg
 [Abyssal Garden](https://github.com/Noniv/abyssal-garden) by Maksymilian Dendura. The idea of a
 procedural city you fly through, with viewpoints on the number keys, detail levels and a synthesized
 soundscape, comes from there. None of its code is used: Synthwave City is written from scratch on a
-different stack, with a different world model and a different look.
+different stack, with a different world model and a different look. The request that started the
+project is in [docs/user_prompt.md](docs/user_prompt.md).
 
 ## What has and has not been tested
 
