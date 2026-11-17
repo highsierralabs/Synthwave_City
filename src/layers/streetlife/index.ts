@@ -4,11 +4,12 @@
 // (./pack.ts), so the GPU draws a fixed grid of "the k-th car from the camera in this lane of the
 // j-th road from the camera" and the vertex shader works out which car that is. Past the handover
 // distance the same function is evaluated per pixel on one quad per road, which turns every car
-// into a pair of dashes: that is the far traffic. People are placed the same way, per block face.
+// into a pair of dashes: that is the far traffic. People are placed the same way, per block face on
+// the sidewalks, and per cell in the alleys and on the plazas.
 //
-// Five draw calls in the main pass and no work in update:
+// Six draw calls in the main pass and no work in update:
 //   bodies (opaque, reflected), lamp sprites (additive, reflected), light on the road (additive),
-//   far traffic (additive), crowds (opaque).
+//   far traffic (additive), crowds on the sidewalks and between the buildings (opaque).
 import {
   BufferAttribute, CustomBlending, DataTexture, DoubleSide, FloatType, FrontSide, InstancedBufferAttribute,
   InstancedBufferGeometry, Mesh, NearestFilter, NoColorSpace, OneFactor, RGBAFormat, ShaderMaterial, Vector2, Vector4, ZeroFactor,
@@ -18,11 +19,11 @@ import { CELLS, RENDER_ORDER, SC_LAYER_NO_REFLECT } from '../../contracts/consta
 import type { FrameState, Layer, LayerContext } from '../../contracts/layer';
 import { buildCarMesh } from './mesh';
 import {
-  CROWD_END, CROWD_PER_FACE, CROWD_START, HANDOVER_END, HANDOVER_START, buildCarField, buildCrowdField, buildLaneTable,
-  trafficDensity,
+  BLOCK_SLOTS, CROWD_END, CROWD_PER_FACE, CROWD_START, HANDOVER_END, HANDOVER_START, buildAlleyTable, buildBlockField,
+  buildCarField, buildCrowdField, buildLaneTable, trafficDensity,
 } from './pack';
 import {
-  CAR_FRAG, CAR_VERT, FAR_FRAG, FAR_VERT, LAMP_FRAG, LAMP_VERT, POOL_FRAG, POOL_VERT, WALKER_FRAG, WALKER_VERT,
+  BLOCK_VERT, CAR_FRAG, CAR_VERT, FAR_FRAG, FAR_VERT, LAMP_FRAG, LAMP_VERT, POOL_FRAG, POOL_VERT, WALKER_FRAG, WALKER_VERT,
 } from './shaders';
 
 interface Disposable { dispose(): void }
@@ -84,10 +85,21 @@ export function createLayer(): Layer {
       laneTex.needsUpdate = true;
       disposables.push(laneTex);
 
+      // The alleys between the buildings, found from the boxes of the plan.
+      const alleys = buildAlleyTable(plan);
+      const alleyTex = new DataTexture(alleys.data, alleys.width, alleys.height, RGBAFormat, FloatType);
+      alleyTex.magFilter = NearestFilter;
+      alleyTex.minFilter = NearestFilter;
+      alleyTex.colorSpace = NoColorSpace;
+      alleyTex.generateMipmaps = false;
+      alleyTex.needsUpdate = true;
+      disposables.push(alleyTex);
+
       // Real cars never reach the far fade, whatever the tier.
       const handoverEnd = Math.min(HANDOVER_END, quality.fadeStart * 0.8);
       const handoverStart = handoverEnd * (HANDOVER_START / HANDOVER_END);
       const perFace = quality.crowds ? Math.round(CROWD_PER_FACE * quality.density) : 0;
+      const perCell = quality.crowds ? Math.round(BLOCK_SLOTS * quality.density) : 0;
       const uniforms: Uniforms = {
         ...ctx.uniforms,
         uLaneTex: { value: laneTex },
@@ -97,7 +109,8 @@ export function createLayer(): Layer {
         // Far traffic: smallest sigma of a lamp in pixels, then the gains of the pool, the tail smear and the
         // underglow, chosen so each carries the energy of its near quad.
         uDash: { value: new Vector4(0.9, 0.29, 0.14, 0.6) },
-        uCrowd: { value: new Vector4(CROWD_START, CROWD_END, perFace, 0) },
+        uAlleyTex: { value: alleyTex },
+        uCrowd: { value: new Vector4(CROWD_START, CROWD_END, perFace, perCell) },
       };
 
       const add = (geometry: InstancedBufferGeometry, material: ShaderMaterial, instances: number, order: number, reflected: boolean): void => {
@@ -120,6 +133,7 @@ export function createLayer(): Layer {
         const body = new InstancedBufferGeometry();
         body.setAttribute('position', new BufferAttribute(car.position, 3));
         body.setAttribute('aAlt', new BufferAttribute(car.alt, 3));
+        body.setAttribute('aBike', new BufferAttribute(car.bike, 3));
         body.setAttribute('aPart', new BufferAttribute(car.part, 1));
         body.setIndex(new BufferAttribute(car.index, 1));
         body.setAttribute('aSlot', slot);
@@ -154,6 +168,14 @@ export function createLayer(): Layer {
         const crowd = quads(1, -1, 1, 0, 1);
         crowd.setAttribute('aWalker', new InstancedBufferAttribute(walkers, 4));
         add(crowd, new ShaderMaterial({ vertexShader: WALKER_VERT, fragmentShader: WALKER_FRAG, uniforms }), walkers.length / 4, RENDER_ORDER.opaque, false);
+      }
+
+      // ---- people between the buildings: alleys and plazas
+      const blockWalkers = buildBlockField(perCell);
+      if (blockWalkers.length > 0) {
+        const block = quads(1, -1, 1, 0, 1);
+        block.setAttribute('aBlock', new InstancedBufferAttribute(blockWalkers, 4));
+        add(block, new ShaderMaterial({ vertexShader: BLOCK_VERT, fragmentShader: WALKER_FRAG, uniforms }), blockWalkers.length / 4, RENDER_ORDER.opaque, false);
       }
 
       release = (): void => {

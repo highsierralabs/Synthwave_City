@@ -347,13 +347,14 @@ describe('the vehicle mesh', () => {
     expect(mesh.index.length).toBe(mesh.triangles * 3);
     expect(mesh.position.length).toBe(mesh.vertices * 3);
     expect(mesh.alt.length).toBe(mesh.vertices * 3);
+    expect(mesh.bike.length).toBe(mesh.vertices * 3);
     expect(mesh.part.length).toBe(mesh.vertices);
     for (const i of mesh.index) expect(i).toBeLessThan(mesh.vertices);
     for (const v of mesh.position) expect(Number.isFinite(v)).toBe(true);
   });
 
-  it('winds every face outwards in both shapes', () => {
-    for (const shape of [mesh.position, mesh.alt]) {
+  it('winds every face outwards in all three shapes', () => {
+    for (const shape of [mesh.position, mesh.alt, mesh.bike]) {
       // Each part is convex; a face must look away from the centre of its own part.
       const sums = new Map<number, { x: number; y: number; z: number; n: number }>();
       const partOf = (v: number): number => mesh.part[v]! * 1000 + (mesh.part[v]! === 2 ? Math.sign(mesh.position[v * 3]! - 0.02) : 0);
@@ -379,7 +380,7 @@ describe('the vehicle mesh', () => {
   it('stands on the road and fits its lane', () => {
     let minY = Infinity, maxZ = 0;
     for (let v = 0; v < mesh.vertices; v++) {
-      for (const shape of [mesh.position, mesh.alt]) {
+      for (const shape of [mesh.position, mesh.alt, mesh.bike]) {
         minY = Math.min(minY, shape[v * 3 + 1]!);
         maxZ = Math.max(maxZ, Math.abs(shape[v * 3 + 2]!));
       }

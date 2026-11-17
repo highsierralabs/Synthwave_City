@@ -2,12 +2,14 @@
 //
 // Car frame: x forward, y up, z to the driver's right. "Along" is the coordinate a lane runs in,
 // "across" the one that is fixed. The lane arithmetic mirrors ./pack.ts line for line.
-import { AVENUE, STREET } from '../../contracts/constants';
+import { AVENUE, LOOP_SECONDS, STREET } from '../../contracts/constants';
 import { SC_COMMON, SC_VERTEX } from '../../contracts/glsl';
-import { BUS_SCALE, CAR_AXLES, CAR_DIMS, CAR_FLOOR, VAN_AXLES, VAN_DIMS, VAN_FLOOR } from './mesh';
+import { BIKE_AXLES, BIKE_DIMS, BIKE_FLOOR, BUS_SCALE, CAR_AXLES, CAR_DIMS, CAR_FLOOR, VAN_AXLES, VAN_DIMS, VAN_FLOOR } from './mesh';
 import {
-  BUS_CHANCE, CROWD_BY_DISTRICT, CROWD_END_MARGIN, CROWD_MARGIN, EMERGENCY_CHANCE, JITTER_MAX, MIN_GAP, SKIP_CHANCE,
-  STANDING_CHANCE, TAXI_CHANCE, VAN_CHANCE,
+  ALLEY_STAND_MARGIN, ALLEY_STANDING, ALLEY_TEXELS, ALLEY_WALK_MARGIN, BIKE_CHANCE, BLOCK_HASH_BASE, BUS_CHANCE,
+  CROWD_BY_DISTRICT, CROWD_END_MARGIN, CROWD_MARGIN, EMERGENCY_CHANCE, JITTER_MAX, MIN_GAP, PLAZA_CROSS_CENTRE,
+  PLAZA_CROSS_EDGE, PLAZA_RING_MAX, PLAZA_RING_MIN, PLAZA_RING_SHARE, PLAZA_STAND_SHARE, SKIP_CHANCE, STANDING_CHANCE,
+  TAXI_CHANCE, VAN_CHANCE,
 } from './pack';
 
 const f = (n: number): string => (Number.isInteger(n) ? `${n}.0` : `${n}`);
@@ -43,7 +45,7 @@ float sl_q(vec4 lane, float coord) { return (coord / SC_TILE - fract(lane.y * uL
 struct SlCar {
   float offset;  // metres from the queried coordinate to the car's centre, along the lane's axis
   float show;    // 1 if the slot holds a vehicle
-  float klass;   // 0 car, 1 van, 2 bus
+  float klass;   // 0 car, 1 van, 2 bus, 3 motorcycle
   float kind;    // 0 plain, 1 taxi, 2 emergency
   float idx;     // car index in its lane
   vec3 r1;       // x jitter, y presence, z tints
@@ -63,7 +65,8 @@ SlCar sl_car(vec4 lane, float laneId, float row, float q, float idxF) {
   c.show = step(0.5, lane.z) * step(${f(SKIP_CHANCE)}, c.r1.y);
   // Buses keep out of the fast inner lane.
   float inner = 1.0 - step(0.5, sl_imod(row, 3.0));
-  c.klass = c.r2.x < ${f(BUS_CHANCE)} ? 2.0 - inner : (c.r2.x < ${f(BUS_CHANCE + VAN_CHANCE)} ? 1.0 : 0.0);
+  c.klass = c.r2.x < ${f(BUS_CHANCE)} ? 2.0 - inner : c.r2.x < ${f(BUS_CHANCE + VAN_CHANCE)} ? 1.0
+    : c.r2.x < ${f(BUS_CHANCE + VAN_CHANCE + BIKE_CHANCE)} ? 3.0 : 0.0;
   c.kind = c.r2.y < ${f(EMERGENCY_CHANCE)} ? 2.0 : (c.r2.y < ${f(EMERGENCY_CHANCE + TAXI_CHANCE)} ? 1.0 : 0.0);
   if (c.kind > 0.5) c.klass = 0.0;
   return c;
@@ -71,6 +74,7 @@ SlCar sl_car(vec4 lane, float laneId, float row, float q, float idxF) {
 
 // Half length, height, half width, metres.
 vec3 sl_dims(SlCar c) {
+  if (c.klass > 2.5) return ${v3(BIKE_DIMS)};
   if (c.klass > 1.5) return ${v3(VAN_DIMS)} * ${v3(BUS_SCALE)};
   if (c.klass > 0.5) return ${v3(VAN_DIMS)};
   return vec3(${f(CAR_DIMS[0])} * (0.94 + 0.12 * fract(c.r1.z * 17.0)), ${f(CAR_DIMS[1])}, ${f(CAR_DIMS[2])});
@@ -87,7 +91,7 @@ vec3 sl_accent(SlCar c) {
 float sl_underglow(SlCar c) {
   float g = fract(c.r2.z * 13.0);
   float over = step(0.93, fract(c.r2.x * 29.0));
-  return (0.3 + 0.9 * g * g) * (1.0 + 2.4 * over) * (c.klass > 0.5 ? 0.55 : 1.0);
+  return (0.3 + 0.9 * g * g) * (1.0 + 2.4 * over) * (c.klass > 0.5 && c.klass < 2.5 ? 0.55 : 1.0);
 }
 // How much of a lamp shows from where the camera is. facing: 1 looking straight into the lamp, -1 from
 // behind it. lift: sine of the camera's elevation above the road, seen from the car. From above, the
@@ -154,6 +158,7 @@ vec3 sl_turn(vec2 fwd, vec3 v) { return vec3(fwd.x * v.x - fwd.y * v.z, v.y, fwd
 
 export const CAR_VERT = SC_COMMON + SC_VERTEX + SL_LANES + SL_PLACED + /* glsl */ `
 attribute vec3 aAlt;
+attribute vec3 aBike;
 attribute float aPart;
 varying vec3 vP;
 varying vec3 vLocal;
@@ -167,7 +172,7 @@ flat varying vec3 vHead;
 flat varying vec2 vStrobe;
 void main() {
   SlPlaced c = sl_placed();
-  vec3 shape = c.car.klass < 0.5
+  vec3 shape = c.car.klass > 2.5 ? aBike : c.car.klass < 0.5
     ? position * vec3(c.dims.x / ${f(CAR_DIMS[0])}, 1.0, 1.0)
     : aAlt * (c.car.klass > 1.5 ? ${v3(BUS_SCALE)} : vec3(1.0));
   vec3 p = sc_place(c.anchor, sl_turn(c.fwd, shape));
@@ -214,11 +219,12 @@ void main() {
 
   float klass = vInfo.x, kind = vInfo.y, part = vInfo.z;
   float halfL = vDims.x, tall = vDims.y, halfW = vDims.z;
-  float boxy = step(0.5, klass), bus = step(1.5, klass);
+  float bike = step(2.5, klass);
+  float boxy = step(0.5, klass) - bike, bus = step(1.5, klass) - bike;
   vec3 q = vLocal;
   vec2 zy = vec2(q.z, q.y), fzy = vec2(fw.z, fw.y);
   vec2 zyN = vec2(q.z / halfW, q.y / tall), fzyN = vec2(fw.z / halfW, fw.y / tall);
-  float floorY = klass < 0.5 ? ${f(CAR_FLOOR)} : ${f(VAN_FLOOR)} * (bus > 0.5 ? ${f(BUS_SCALE[1])} : 1.0);
+  float floorY = bike > 0.5 ? ${f(BIKE_FLOOR)} : klass < 0.5 ? ${f(CAR_FLOOR)} : ${f(VAN_FLOOR)} * (bus > 0.5 ? ${f(BUS_SCALE[1])} : 1.0);
 
   float pr = vRand.x;
   vec3 paint = pr < 0.30 ? vec3(0.012, 0.010, 0.030) : pr < 0.48 ? vec3(0.085, 0.008, 0.020)
@@ -240,7 +246,9 @@ void main() {
       if (q.x < 0.0) {
         // Tail lights.
         float m;
-        if (klass < 0.5) {
+        if (bike > 0.5) {
+          m = sl_rect(zy, vec2(0.0, 0.8), vec2(0.075, 0.05), fzy);
+        } else if (klass < 0.5) {
           float bar = sl_rect(zy, vec2(0.0, 0.66), vec2(0.84, 0.07), fzy);
           float blocks = sl_rect(vec2(abs(q.z), q.y), vec2(0.6, 0.66), vec2(0.25, 0.08), fzy);
           m = vRand.y < 0.4 ? bar : vRand.y < 0.7 ? blocks : bar * (0.25 + 0.75 * sc_pulse(q.z / 0.21 + 0.5, 0.7, fw.z / 0.21));
@@ -252,7 +260,9 @@ void main() {
       } else {
         // Headlights.
         float m;
-        if (klass < 0.5) {
+        if (bike > 0.5) {
+          m = sl_rect(zy, vec2(0.0, 0.8), vec2(0.09, 0.07), fzy);
+        } else if (klass < 0.5) {
           float lamps = sl_rect(vec2(abs(q.z), q.y), vec2(0.6, 0.39), vec2(0.24, 0.055), fzy);
           float bar = sl_rect(zy, vec2(0.0, 0.39), vec2(0.86, 0.03), fzy);
           m = fract(vRand.y * 7.0) < 0.3 ? bar : lamps;
@@ -268,6 +278,11 @@ void main() {
     } else if (q.y < floorY + 0.01) {
       col = vec3(0.004, 0.004, 0.008);
     }
+  } else if (part < 1.5 && bike > 0.5) {
+    // The rider: dark leathers, a helmet in the paint colour, and a lit visor round its front.
+    float helmet = step(tall - 0.3, q.y);
+    col = mix(vec3(0.012, 0.010, 0.022) * (0.4 + 0.6 * up), col, helmet);
+    glow += vAccent * sc_line(q.y - (tall - 0.16), 0.035, fw.y) * step(-0.02, q.x) * (1.0 - up) * 3.0;
   } else if (part < 1.5) {
     float base = klass < 0.5 ? 0.7 : 1.18 * (bus > 0.5 ? ${f(BUS_SCALE[1])} : 1.0);
     float t = clamp((q.y - base) / (tall - base), 0.0, 1.0);
@@ -313,8 +328,8 @@ void main() {
       // The axle is a box; cut its two outer faces down to round wheels (a pair of them on a bus).
       float sx = klass < 0.5 ? halfL / ${f(CAR_DIMS[0])} : (bus > 0.5 ? ${f(BUS_SCALE[0])} : 1.0);
       float sy = bus > 0.5 ? ${f(BUS_SCALE[1])} : 1.0;
-      float r0 = klass < 0.5 ? ${f(CAR_AXLES[2])} : ${f(VAN_AXLES[2])};
-      float axle = (klass < 0.5 ? (q.x > 0.0 ? ${f(CAR_AXLES[0])} : ${f(CAR_AXLES[1])}) : (q.x > 0.0 ? ${f(VAN_AXLES[0])} : ${f(VAN_AXLES[1])})) * sx;
+      float r0 = bike > 0.5 ? ${f(BIKE_AXLES[2])} : klass < 0.5 ? ${f(CAR_AXLES[2])} : ${f(VAN_AXLES[2])};
+      float axle = bike > 0.5 ? (q.x > 0.0 ? ${f(BIKE_AXLES[0])} : ${f(BIKE_AXLES[1])}) : (klass < 0.5 ? (q.x > 0.0 ? ${f(CAR_AXLES[0])} : ${f(CAR_AXLES[1])}) : (q.x > 0.0 ? ${f(VAN_AXLES[0])} : ${f(VAN_AXLES[1])})) * sx;
       float radius = r0 * sy;
       float r = length(vec2(max(abs(q.x - axle) - max(r0 * sx - radius, 0.0), 0.0), q.y - radius));
       cut = r > radius;
@@ -347,7 +362,8 @@ void main() {
   gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   if (c.car.show < 0.5 || c.fadeNear <= 0.0) return;
 
-  float boxy = step(0.5, c.car.klass);
+  float bike = step(2.5, c.car.klass);
+  float boxy = step(0.5, c.car.klass) - bike;
   float sideSign = mod(id, 2.0) < 0.5 ? -1.0 : 1.0;
   vec3 lamp;
   vec3 color;
@@ -373,6 +389,12 @@ void main() {
       color = sc_neon(4.0) * 2.5;
       size = 0.32;
     }
+  }
+
+  if (bike > 0.5 && id < 3.5) {
+    // A motorcycle has one lamp at each end, on its centre line.
+    if (sideSign > 0.0) return;
+    lamp = vec3(sign(lamp.x) * (c.dims.x + 0.05), 0.8, 0.0);
   }
 
   vec3 centre = sc_place(c.anchor, sl_turn(c.fwd, lamp));
@@ -431,8 +453,10 @@ void main() {
   vec2 lo, hi;
   vec3 color;
   if (id < 0.5) {
-    lo = vec2(c.dims.x - 0.8, -${f(POOL_HALF)});
-    hi = vec2(c.dims.x + ${f(POOL_LENGTH)}, ${f(POOL_HALF)});
+    // A motorcycle's one lamp throws a narrower pool.
+    float poolHalf = ${f(POOL_HALF)} * (c.car.klass > 2.5 ? 0.6 : 1.0);
+    lo = vec2(c.dims.x - 0.8, -poolHalf);
+    hi = vec2(c.dims.x + ${f(POOL_LENGTH)}, poolHalf);
     color = mix(sl_headColor(c.car), sc_neon(4.0), 0.25) * 0.7 * sl_poolShow(uCam.y / max(c.dist, 1.0));
   } else if (id < 1.5) {
     lo = vec2(-c.dims.x - 7.0, -1.8);
@@ -472,7 +496,8 @@ void main() {
     // Two beams merging into one widening pool.
     float t = clamp((vQ.x - halfL) / ${f(POOL_LENGTH)}, 0.0, 1.0);
     float w = mix(0.7, ${f(POOL_HALF * 0.6)}, t);
-    float y = abs(vQ.y) - 0.55 * (1.0 - t);
+    // Two beams a car's lamps apart, merging; a motorcycle's are nearly one.
+    float y = abs(vQ.y) - 0.55 * min(halfW / ${f(CAR_DIMS[2])}, 1.0) * (1.0 - t);
     a = smoothstep(0.0, 0.06, t) * pow(1.0 - t, 2.4) * exp(-y * y / (w * w));
   } else if (id < 1.5) {
     float t = clamp((-halfL - vQ.x) / 7.0, 0.0, 1.0);
@@ -557,6 +582,8 @@ void main() {
     vec3 head = sl_headColor(car), tail = sl_tailColor(car);
     // Lamps: the two of each end drawn as one dot, held at a few pixels and dimmed as the sprites are.
     float lampGain = 1.6 * mix(uLamp.y, 1.0, clamp(0.6 / (uLamp.x * min(fw.x, fw.y)), 0.0, 1.0));
+    // A motorcycle has one lamp at each end, not a pair.
+    lampGain *= car.klass > 2.5 ? 0.55 : 1.0;
     vec3 c = head * sl_spot(vec2(x - halfL - 0.3, dl), vec2(0.5), fw, uDash.x, 0.0) * sl_headShow(facing, lift) * 6.0 * lampGain;
     c += tail * sl_spot(vec2(x + halfL + 0.3, dl), vec2(0.5), fw, uDash.x, 0.0) * sl_tailShow(facing, lift) * 4.0 * lampGain;
     // Light on the road, with the energy of the near quads.
@@ -586,9 +613,12 @@ void main() {
 
 const share = CROWD_BY_DISTRICT;
 
-export const WALKER_VERT = SC_COMMON + SC_VERTEX + /* glsl */ `
-attribute vec4 aWalker;   // axis * 2 + side, road offset, block offset, index on that block face
-uniform vec4 uCrowd;      // x where people start to shrink away, y where they are gone, z people per block face
+const crowdShare = (district: string): string =>
+  `(${district} < 0.5 ? ${f(share[0] ?? 1)} : ${district} < 1.5 ? ${f(share[1] ?? 1)} : ${district} < 2.5 ? ${f(share[2] ?? 1)}
+    : ${district} < 3.5 ? ${f(share[3] ?? 1)} : ${f(share[4] ?? 1)})`;
+
+const SL_FIGURE = /* glsl */ `
+uniform vec4 uCrowd;      // x where people start to shrink away, y where they are gone, z people per block face, w people per cell
 varying vec3 vP;
 varying vec2 vQ;          // metres: x across the figure, y up from the feet
 flat varying vec4 vBody;  // stature, leg swing -1..1, bob, accent variant 0..1
@@ -597,6 +627,30 @@ flat varying vec3 vAccent;
 flat varying vec3 vRim;
 
 float sl_imod(float x, float y) { return x - y * floor((x + 0.5) / y); }
+
+// Dress a figure from its hashes and stand it at anchor, upright and turned about the vertical to face
+// the camera. stride is the distance walked in radians of leg swing; palette the neon of its block.
+void sl_figure(vec3 anchor, float scale, float stride, float moving, vec3 r2, vec3 r3, float palette) {
+  float stature = mix(1.52, 1.9, r2.y);
+  vBody = vec4(stature, sin(stride) * moving, abs(sin(stride)) * 0.035 * moving, r2.z);
+  vLook = vec4(step(0.86, r3.x), step(0.62, r3.y), r3.z * r3.z, 0.0);
+  float a = r3.x * 7.0 - floor(r3.x * 7.0);
+  vAccent = sc_neon(a < 0.3 ? 0.0 : a < 0.6 ? 1.0 : a < 0.75 ? 4.0 : a < 0.87 ? 5.0 : a < 0.95 ? 3.0 : 7.0);
+  vRim = sc_neon(palette);
+
+  vec3 right = vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]);
+  float rl = length(right);
+  right = rl > 1e-4 ? right / rl : vec3(1.0, 0.0, 0.0);
+  vec2 quad = vec2(position.x * ${f(WALKER_HALF)}, position.y * ${f(WALKER_TALL)});
+  vec3 p = sc_place(anchor, (right * quad.x + vec3(0.0, quad.y, 0.0)) * scale);
+  vP = p;
+  vQ = quad;
+  gl_Position = scale > 0.0 ? sc_project(p) : vec4(2.0, 2.0, 2.0, 1.0);
+}
+`;
+
+export const WALKER_VERT = SC_COMMON + SC_VERTEX + SL_FIGURE + /* glsl */ `
+attribute vec4 aWalker;   // axis * 2 + side, road offset, block offset, index on that block face
 
 void main() {
   float axis = step(1.5, aWalker.x);
@@ -618,8 +672,7 @@ void main() {
   float cellAcross = sl_imod(lineF + side - 1.0, SC_CELLS);
   vec4 cell = sc_cellData(axis < 0.5 ? ivec2(int(block + 0.5), int(cellAcross + 0.5)) : ivec2(int(cellAcross + 0.5), int(block + 0.5)));
   float district = floor(cell.r + 0.5);
-  float crowd = district < 0.5 ? ${f(share[0] ?? 1)} : district < 1.5 ? ${f(share[1] ?? 1)} : district < 2.5 ? ${f(share[2] ?? 1)}
-    : district < 3.5 ? ${f(share[3] ?? 1)} : ${f(share[4] ?? 1)};
+  float crowd = ${crowdShare('district')};
 
   float id = line + aWalker.x * 64.0;
   vec3 r1 = sc_hash33(vec3(id, block, aWalker.w));
@@ -640,23 +693,97 @@ void main() {
   float scale = (1.0 - smoothstep(uCrowd.x, uCrowd.y, dist)) * step(aWalker.w + 0.5, uCrowd.z * crowd);
 
   float stride = tri * (hi - lo) * (SC_PI / 0.72);
-  float moving = 1.0 - standing;
-  float stature = mix(1.52, 1.9, r2.y);
-  vBody = vec4(stature, sin(stride) * moving, abs(sin(stride)) * 0.035 * moving, r2.z);
-  vLook = vec4(step(0.86, r3.x), step(0.62, r3.y), r3.z * r3.z, 0.0);
-  float a = r3.x * 7.0 - floor(r3.x * 7.0);
-  vAccent = sc_neon(a < 0.3 ? 0.0 : a < 0.6 ? 1.0 : a < 0.75 ? 4.0 : a < 0.87 ? 5.0 : a < 0.95 ? 3.0 : 7.0);
-  vRim = sc_neon(cell.g);
+  sl_figure(anchor, scale, stride, 1.0 - standing, r2, r3, cell.g);
+}
+`;
 
-  // Upright, turned about the vertical to face the camera.
-  vec3 right = vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]);
-  float rl = length(right);
-  right = rl > 1e-4 ? right / rl : vec3(1.0, 0.0, 0.0);
-  vec2 quad = vec2(position.x * ${f(WALKER_HALF)}, position.y * ${f(WALKER_TALL)});
-  vec3 p = sc_place(anchor, (right * quad.x + vec3(0.0, quad.y, 0.0)) * scale);
-  vP = p;
-  vQ = quad;
-  gl_Position = scale > 0.0 ? sc_project(p) : vec4(2.0, 2.0, 2.0, 1.0);
+// ---- people between the buildings: in the alleys and on the plazas (plan M6). Mirrors blockWalkerAt in ./pack.ts.
+
+export const BLOCK_VERT = SC_COMMON + SC_VERTEX + SL_FIGURE + /* glsl */ `
+attribute vec4 aBlock;    // cell offset from the camera's cell along x and z, slot in the cell
+uniform highp sampler2D uAlleyTex;
+
+void main() {
+  float cellXF = floor(uCam.x / SC_CELL) + aBlock.x;
+  float cellZF = floor(uCam.z / SC_CELL) + aBlock.y;
+  float cx = sl_imod(cellXF, SC_CELLS), cz = sl_imod(cellZF, SC_CELLS);
+  vec4 cell = sc_cellData(ivec2(int(cx + 0.5), int(cz + 0.5)));
+  float district = floor(cell.r + 0.5);
+  float share = ${crowdShare('district')};
+  // The block: the cell minus the road corridors on its four sides.
+  float x0 = cellXF * SC_CELL + sc_corridorHalf(sc_isAvenue(cx));
+  float x1 = (cellXF + 1.0) * SC_CELL - sc_corridorHalf(sc_isAvenue(sl_imod(cx + 1.0, SC_CELLS)));
+  float z0 = cellZF * SC_CELL + sc_corridorHalf(sc_isAvenue(cz));
+  float z1 = (cellZF + 1.0) * SC_CELL - sc_corridorHalf(sc_isAvenue(sl_imod(cz + 1.0, SC_CELLS)));
+
+  float id = cz * SC_CELLS + cx + ${f(BLOCK_HASH_BASE)};
+  float p = aBlock.z;
+  vec3 r1 = sc_hash33(vec3(id, p, 11.0));
+  vec3 r2 = sc_hash33(vec3(id, p, 12.0));
+  vec3 r3 = sc_hash33(vec3(id, p, 13.0));
+  vec3 r4 = sc_hash33(vec3(id, p, 14.0));
+
+  vec2 at;
+  float show, walked, moving;
+  if (district > 2.5 && district < 3.5) {
+    // A plaza: round rings about the centre, across it on straight lines, or standing about.
+    show = step(p + 0.5, uCrowd.w * share);
+    vec2 mid = vec2(x0 + x1, z0 + z1) * 0.5;
+    vec2 halfSize = vec2(x1 - x0, z1 - z0) * 0.5;
+    if (r4.x < ${f(PLAZA_RING_SHARE + PLAZA_STAND_SHARE)}) {
+      moving = 1.0 - step(${f(PLAZA_RING_SHARE)}, r4.x);
+      float radius = mix(${f(PLAZA_RING_MIN)}, ${f(PLAZA_RING_MAX)}, r4.y);
+      float speed = 1.0 + 0.5 * r1.y;
+      float laps = moving > 0.5 ? max(1.0, floor(speed * ${f(LOOP_SECONDS)} / (2.0 * SC_PI * radius))) : 0.0;
+      float dir = r4.z < 0.5 ? -1.0 : 1.0;
+      float u = fract(dir * laps * uLoop + r1.z);
+      float a = 2.0 * SC_PI * u;
+      at = mid + radius * vec2(cos(a), sin(a));
+      walked = u * 2.0 * SC_PI * radius;
+    } else {
+      bool along0 = r4.z < 0.5;
+      float ha = along0 ? halfSize.x : halfSize.y;
+      float hp = along0 ? halfSize.y : halfSize.x;
+      float sgn = fract(r4.z * 7.0) < 0.5 ? -1.0 : 1.0;
+      float offset = sgn * (${f(PLAZA_CROSS_CENTRE)} + (hp - ${f(PLAZA_CROSS_EDGE + PLAZA_CROSS_CENTRE)}) * r4.y);
+      float laps = floor(12.0 + 11.99 * r1.y);
+      float tri = abs(2.0 * fract(laps * uLoop + r1.z) - 1.0);
+      float along = -ha + 1.0 + (2.0 * ha - 2.0) * tri;
+      at = mid + (along0 ? vec2(along, offset) : vec2(offset, along));
+      walked = tri * (2.0 * ha - 2.0);
+      moving = 1.0;
+    }
+  } else {
+    // An alley: slot p belongs to alley place p mod 6 (three per axis); the cell may have fewer.
+    float a = sl_imod(p, 6.0);
+    float axis = step(2.5, a);
+    float k = a - 3.0 * axis;
+    float q = floor((p - a) / 6.0 + 0.5);
+    ivec2 tx = ivec2(int(cx + 0.5) * ${ALLEY_TEXELS} + int(axis + 0.5) * 2, int(cz + 0.5));
+    vec4 centres = texelFetch(uAlleyTex, tx, 0);
+    vec4 halves = texelFetch(uAlleyTex, tx + ivec2(1, 0), 0);
+    show = step(k + 0.5, centres.w) * step(q + 0.5, uCrowd.w / 6.0 * share);
+    float centre = k < 0.5 ? centres.x : k < 1.5 ? centres.y : centres.z;
+    float halfW = k < 0.5 ? halves.x : k < 1.5 ? halves.y : halves.z;
+    // Some stand at a shop window; the rest walk the alley end to end and back.
+    float standing = 1.0 - step(${f(ALLEY_STANDING)}, r2.x);
+    moving = 1.0 - standing;
+    float laps = standing > 0.5 ? 0.0 : floor(12.0 + 11.99 * r1.y);
+    float tri = abs(2.0 * fract(laps * uLoop + r1.z) - 1.0);
+    float lo = (axis < 0.5 ? x0 : z0) + 0.5, hi = (axis < 0.5 ? x1 : z1) - 0.5;
+    float along = mix(lo, hi, tri);
+    float lateral = standing > 0.5
+      ? (r1.x < 0.5 ? -1.0 : 1.0) * max(halfW - ${f(ALLEY_STAND_MARGIN)}, 0.0)
+      : (2.0 * r1.x - 1.0) * max(halfW - ${f(ALLEY_WALK_MARGIN)}, 0.0);
+    float across = (axis < 0.5 ? cellZF : cellXF) * SC_CELL + centre + lateral;
+    at = axis < 0.5 ? vec2(along, across) : vec2(across, along);
+    walked = tri * (hi - lo);
+  }
+
+  vec3 anchor = vec3(at.x, 0.0, at.y);
+  float dist = length(vec3(sc_wrap(anchor.xz), uCam.y));
+  float scale = (1.0 - smoothstep(uCrowd.x, uCrowd.y, dist)) * show;
+  sl_figure(anchor, scale, walked * (SC_PI / 0.72), moving, r2, r3, cell.g);
 }
 `;
 

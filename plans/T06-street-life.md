@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01, T02]
 owns: [src/layers/streetlife/**, tests/unit/streetlife/**, plans/T06-street-life.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**, plans/README.md]
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 # T06: street life
@@ -91,6 +91,44 @@ detail each (jacket seam, visor, soles, a screen in the hand, piping, umbrella r
 thrown across the carriageway; taxis (6%) with a lit roof sign; a few cars with over-bright underglow
 and lit wheel rings; vans; buses with lit saloon windows, a route stripe and a destination sign.
 
+**M6. People between the buildings (revision, 2026-11-16).** The operator: "The pedestrians only stay
+next to the road. There are areas between the buildings that have shops and open plazas that have no
+pedestrian traffic." Two new places to walk, one more draw call, the same figure (`WALKER_FRAG`):
+
+- **Alleys.** The gaps T01 leaves between lots run the full depth of a block, lined with podium shop
+  fronts. At init the layer finds them from `plan.boxes` (contract data; no change to `src/city`): per
+  cell, the street-level boxes' extents along each axis are merged, and every free band between two
+  of them at least 3 m wide is an alley, up to three per axis. Plaza and mega cells have none. They go
+  into a small float texture, `uAlleyTex` (4 texels per cell: centres and half widths per axis).
+- **Plazas.** Open squares, with kiosks in some corners, and a light pillar and searchlights within
+  18 m of the centre. People stroll round rings 24 to 50 m from the centre, cross on straight lines
+  22 m or more from the centre and 24 m or more from the side they run along, or stand about. Both
+  shapes stay clear of every corner kiosk (a kiosk lies 3 to 23 m in from both edges) and of the
+  centre by construction.
+- **The instance grid:** "slot p of the cell (dx, dz) from the camera's cell", 5 x 5 cells. In a plaza
+  every slot is a person; elsewhere slot p belongs to alley p mod 6 and is hidden if the cell has no
+  such alley. Density per district as on the sidewalks, and off where the tier has no crowds. Each
+  person walks there and back (or round) a whole number of times per loop, so the loop stays seamless.
+
+Proof: a TypeScript mirror of the placement in `pack.ts`, with unit tests on a real city plan: nobody
+inside or within a body's width of any box, at many cameras and loop phases; nobody in a road; plaza
+walkers clear of the pillar and searchlights; whole laps; walking pace. Screenshots from inside an
+alley and over a plaza.
+
+**M7. Motorcycles (revision, 2026-11-16).** The operator: "the street traffic needs some motorcycles."
+A fourth vehicle class, 10% of slots (taken from plain cars; vans, buses, taxis and emergency cars are
+unchanged), in any lane. The vehicle mesh gains a third shape per vertex, `aBike`, on the same 34
+vertices: the body prism becomes a slim tank, seat and fairing, the cabin frustum a rider leaning
+forward, the two axle boxes become the wheels (the fragment shader already cuts an axle's outer faces
+to round wheels). One head lamp and one tail lamp (the second sprite of each pair is hidden), a
+helmet visor in the accent colour, a lit flank line and the usual underglow; the far dashes draw a
+motorcycle's lamps at about half the power of a car's pair. A bike is 2.2 m long, so lane spacing and
+`MIN_GAP` hold.
+
+Proof: unit tests on the mesh (third shape well formed, wound outwards, standing on the road, narrower
+than a car) and on the class mix (about 10% motorcycles, never a taxi or emergency vehicle);
+screenshots near and far, from the street and from above.
+
 ## 6. Validation and acceptance
 
 - `npm run check:task -- T06` exits 0.
@@ -103,6 +141,12 @@ and lit wheel rings; vans; buses with lit saloon windows, a route stripe and a d
   seam).
 
 Human checks: H-T06-1, the streets feel busy rather than sparse or jammed.
+
+**M6 and M7 acceptance.** `npm run check:task -- T06` exits 0; the unit tests above pass and one is
+shown failing once; screenshots in `shots/T06/m6/` from inside an alley, over a plaza, and of
+motorcycles near and far, looked at and described; no console errors; `npm run smoke` stays within its
+budget. Human check H-T06-3: on the operator's devices, the alleys and plazas read as busy and the
+motorcycles read as motorcycles.
 
 ## 7. Idempotence and recovery
 
@@ -121,6 +165,38 @@ removes the five meshes and frees their geometries, materials and the lane textu
   soft spots, lamp visibility shared between sprites and far traffic, figure redrawn, wheels cut round,
   gentler density curve for the lower tiers.
 - [x] 2026-11-14 Acceptance list run; evidence in section 12. Nothing is left open.
+
+- [x] 2026-11-16 M6 people between the buildings: `buildAlleyTable`, `buildBlockField` and the mirror
+  `blockWalkerAt` in `pack.ts`; `BLOCK_VERT` and the shared figure `sl_figure` in `shaders.ts` (the
+  sidewalk crowd now calls it too, with the same arithmetic); `uAlleyTex` and a sixth draw call in
+  `index.ts`. M7 motorcycles: the `bike` shape in `mesh.ts`; class 3 in `sl_car`, bodies, lamps,
+  pools and far dashes in `shaders.ts`; `carClass` in `pack.ts`; `aBike` in `index.ts`. Tests:
+  `tests/unit/streetlife/between.test.ts` (9) and the mesh tests in `pack.test.ts` now cover three
+  shapes. Evidence below.
+  - Seeds 1 and 2049: more than 1,000 alleys per city (the test's floor; seed 1984 has 5,163), more
+    than 60% of built blocks have one, none in a plaza or megatower block, and no street-level box
+    reaches into any alley.
+  - People in alleys and on plazas, 12 cameras x 3 loop phases x 25 cells x 240 slots per city:
+    none outside their block, none closer than 0.5 m to a building, none within 22 m of a plaza
+    centre or closer than 0.5 m to a light pillar or 1.5 m to a searchlight. Whole laps; at loop 1
+    everyone is where they were at loop 0; walking pace 0.5 to 1.8 m/s.
+  - Shown failing once: with the shop-window margin at 0.2 m the wall test failed ("expected
+    0.19999 to be greater than or equal to 0.5"); restored to 0.7 m, passes.
+  - Motorcycles: within one point of the expected 9.3% (10% x (1 - 0.066)) of all car slots of
+    seed 1, never a taxi or an emergency vehicle; the shape stands on its wheels, is 1.62 m tall and
+    0.4 m wide at most, at the rider's hips (a car is 1.9 m wide), every face wound outwards.
+  - Looked at, all with `layers=sky,ground,buildings,streetlife`, seed 1984, t = 20 s, no console
+    errors or shader warnings: `shots/T06/m6/alley-street.png` (eye height in a lowrise alley: people
+    walking both ways, others standing at the shop windows, the alley continuing into the next
+    block), `alley-high.png` (from 22 m: figures spread along the whole alley, a few umbrellas),
+    `plaza-view.png` and `plaza-top.png` (people round the rings and crossing the square, the corner
+    kiosks and the centre clear), `bike-near.png` and `bike-above.png` (a motorcycle in the inner
+    lane: two wheels, slim body, a hunched rider with a helmet, one magenta tail lamp and its
+    reflection).
+  - `npm run check:task -- T06` PASS; `npm run check` 373 of 373; `npm run plans:check` OK;
+    `npm run smoke` SMOKE OK, 60 draw calls (59 before), median 8.0 ms, p99 8.1 ms, none over 50 ms.
+    The committed code measured the same day gave median 8.0 ms, p99 8.1 ms: the display ran at about
+    125 Hz that day (765 frames in 6 s), so the 6.9 ms of earlier runs is not comparable.
 
 ## 9. Surprises and discoveries
 
@@ -156,6 +232,15 @@ removes the five meshes and frees their geometries, materials and the lane textu
   20:26 local) while `layers=streetlife` alone rendered at once and each sibling layer loaded alone
   minutes later. A sibling was mid-edit; nothing to fix here.
 
+- **The display's refresh rate moved between sessions (2026-11-16).** Smoke read a median of 6.9 ms
+  on 2026-11-15 and 8.0 ms on 2026-11-16 with or without this change, every frame alike: the
+  browser paced at about 125 Hz instead of 144 Hz. A vsync-on frame time is only comparable with
+  one taken the same day.
+- **Uncapped layer timings were noise (2026-11-16).** `scripts/perf.mjs` on the unchanged code reported
+  0.23 ms frames with 36 ms of CPU while the dev server was reloading the stashed files; those runs
+  are not evidence either way. What is measured: one more draw call and 12,000 more triangles
+  (6,000 quads) at the high tier.
+
 ## 10. Decision log
 
 - 2026-11-14 **Camera-relative instance grid instead of one instance per car.** Reason: the triangle
@@ -187,6 +272,25 @@ removes the five meshes and frees their geometries, materials and the lane textu
 - 2026-11-14 **Wheel faces are cut to discs with a `discard` placed after every derivative**, rather
   than spending triangles on round wheels.
 - 2026-11-14 **Emergency strobes use `uTime`** (cosmetic, §4.3) and are scaled by `uMotion`.
+
+- **Alleys are found from the boxes, not handed over by T01 (2026-11-16).** `plan.boxes` is contract
+  data; T01's lot grid makes every free band across a block run its full depth, so merging the
+  street-level extents per cell finds them exactly. No change to `src/city` or the contracts.
+- **One grid of "slot p of the cell (dx, dz)" serves alleys and plazas (2026-11-16).** A plaza uses
+  every slot, a block hands slot p to alley place p mod 6, and the vertex shader decides from the
+  district byte which it is. One draw call, 25 cells x 240 slots at full density. 240 rather than
+  the first 162: from 95 m up a plaza with 162 people looked thin.
+- **Plaza paths are rings and straight crossings, not free wandering (2026-11-16).** Both stay clear
+  of the corner kiosks (3 to 23 m in from both edges), the light pillar and the searchlights by
+  construction, so nothing has to be avoided at run time; the rings also echo the ground's pulsing
+  rings.
+- **Motorcycles are a third shape on the vehicle mesh (2026-11-16).** Same 34 vertices, same instance
+  buffer and draw calls: the body prism becomes the tank and fairing, the cabin the rider, the axle
+  boxes the tyres, which the fragment shader already cut to round wheels. A separate mesh would have
+  meant another draw call over all 9,828 car slots.
+- **10% motorcycles, taken from plain cars only (2026-11-16).** Vans, buses, taxis and emergency
+  vehicles keep their shares, so nothing the operator has already seen changes kind except some
+  plain cars.
 
 ## 11. Contract change requests
 
@@ -268,3 +372,15 @@ PASS T06-street-life
 is a function, the near cars, the far dashes and the tests are three readers of it and cannot drift
 apart. The real layers changed every brightness judgement made against the probe; the last third of
 the art pass should have waited for them.
+
+**M6 and M7 outcome (2026-11-16).** People now walk the alleys between the buildings, stand at their
+shop windows, and stroll and cross the plazas; one car slot in about eleven is a motorcycle with a
+rider, one lamp at each end and its own light on the road. Everything is placed in the vertex shader
+from the loop phase, as before, so the loop stays seamless and nothing is updated per frame.
+Not verified: how it looks in motion and on the operator's devices (H-T06-3); a closer, oncoming
+motorcycle at night and the far dashes of motorcycles were not inspected one by one; the medium and
+low tiers were not photographed (the unit tests cover the thinning); frame cost on a phone.
+
+**H-T06-3 result (2026-11-16, operator, over the tailnet preview).** "Pedestrians look much better. The
+city feels busier now. The motorcycles ok. They are a bit blocky up close but read as motorcycles."
+Passed. Noted for a later pass, not requested: the motorcycle's rider and body are blocky up close.

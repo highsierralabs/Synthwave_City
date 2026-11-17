@@ -10,8 +10,8 @@
 // Because the cars of a lane are a pure function of (lane, index), nothing has to store them. The
 // GPU draws only the cars near the camera: an instance is "the k-th car from the camera in lane row r
 // of the j-th road from the camera", and the vertex shader works out which car that is this frame.
-import type { Lane } from '../../contracts/city';
-import { CELL, CELLS, TILE, roadSpec } from '../../contracts/constants';
+import { BOX, BOX_STRIDE, CELL_FIELD, CELL_STRIDE, DISTRICT, type CityPlan, type Lane } from '../../contracts/city';
+import { CELL, CELLS, LOOP_SECONDS, TILE, roadSpec } from '../../contracts/constants';
 import { clamp, wrap, wrapDelta } from '../../core/math';
 import { hash32, hashInts, hashUnit } from '../../core/random';
 
@@ -31,6 +31,10 @@ export const BUS_CHANCE = 0.06;
 export const VAN_CHANCE = 0.15;
 export const EMERGENCY_CHANCE = 0.006;
 export const TAXI_CHANCE = 0.06;
+/** Motorcycles, taken from the plain cars (plan M7). */
+export const BIKE_CHANCE = 0.1;
+/** Vehicle classes, as the shaders number them. */
+export const VEHICLE = { car: 0, van: 1, bus: 2, bike: 3 } as const;
 
 /** Real cars are drawn inside HANDOVER_END (3D distance, metres); between the two they cross-fade into far dashes. */
 export const HANDOVER_START = 620;
@@ -162,6 +166,18 @@ export function carRandom(rec: LaneRecord, index: number): [number, number, numb
 
 export function carPresent(rec: LaneRecord, index: number): boolean {
   return carRandom(rec, index)[1] >= SKIP_CHANCE;
+}
+
+/** The class of car `index` (a VEHICLE value), as sl_car in the shaders decides it. */
+export function carClass(rec: LaneRecord, index: number): number {
+  const r2 = glslHash33(laneId(rec), index, 2);
+  const inner = rec.row % 3 === 0;
+  let klass: number = r2[0] < BUS_CHANCE ? (inner ? VEHICLE.van : VEHICLE.bus)
+    : r2[0] < BUS_CHANCE + VAN_CHANCE ? VEHICLE.van
+    : r2[0] < BUS_CHANCE + VAN_CHANCE + BIKE_CHANCE ? VEHICLE.bike : VEHICLE.car;
+  // Taxis and emergency vehicles are always cars.
+  if (r2[1] < EMERGENCY_CHANCE + TAXI_CHANCE) klass = VEHICLE.car;
+  return klass;
 }
 
 /**
@@ -335,5 +351,220 @@ export function walkerAt(camX: number, camZ: number, loop: number, axisSide: num
     across: across - camAcross,
     standing,
     laps,
+  };
+}
+
+// ---- people between the buildings: alleys and plazas (plan M6)
+
+/** Alleys kept per cell and axis, and the narrowest gap between two buildings that counts as one, metres. */
+export const ALLEYS_PER_AXIS = 3;
+export const ALLEY_MIN_WIDTH = 3;
+/** Boxes starting lower than this stand in the way of people. */
+export const ALLEY_GROUND = 3;
+/** Texels per cell in the alley table: per axis, the centres then the half widths. */
+export const ALLEY_TEXELS = 4;
+/** Cells either side of the camera's cell that hold people. */
+export const BLOCK_REACH = 2;
+/** People per cell at full density: a plaza uses every one, each of a block's six alley places a sixth. */
+export const BLOCK_SLOTS = 240;
+/** Clear distance kept from an alley's walls by walkers, and by people standing at a shop window. */
+export const ALLEY_WALK_MARGIN = 0.9;
+export const ALLEY_STAND_MARGIN = 0.7;
+/** People standing still in an alley. */
+export const ALLEY_STANDING = 0.25;
+/** Plaza paths: rings round the centre, and straight crossings kept off the centre and the corner kiosks. */
+export const PLAZA_RING_MIN = 24;
+export const PLAZA_RING_MAX = 50;
+export const PLAZA_CROSS_CENTRE = 22;
+export const PLAZA_CROSS_EDGE = 24;
+/** Shares of plaza people on a ring and standing; the rest cross. */
+export const PLAZA_RING_SHARE = 0.55;
+export const PLAZA_STAND_SHARE = 0.15;
+/** Added to a cell's index before hashing, so these people never share a hash with a sidewalk's. */
+export const BLOCK_HASH_BASE = 2048;
+
+export interface AlleyTable {
+  /** (CELLS * ALLEY_TEXELS) x CELLS texels, RGBA float. Texel cx * 4 + axis * 2 of row cz holds up to
+   * three alley centres (metres from the cell's corner, across the alley) and the count; the next texel
+   * their half widths. Axis 0 alleys run along x, axis 1 along z, as lanes do. */
+  readonly data: Float32Array;
+  readonly width: number;
+  readonly height: number;
+  /** Alleys in the whole tile. */
+  readonly count: number;
+}
+
+/** The buildable rectangle of cell (cx, cz), in that cell's own coordinates: the cell minus the road corridors. */
+export function cellRect(cx: number, cz: number): { x0: number; x1: number; z0: number; z1: number } {
+  return {
+    x0: roadSpec(imod(cx, CELLS)).corridorHalf,
+    x1: CELL - roadSpec(imod(cx + 1, CELLS)).corridorHalf,
+    z0: roadSpec(imod(cz, CELLS)).corridorHalf,
+    z1: CELL - roadSpec(imod(cz + 1, CELLS)).corridorHalf,
+  };
+}
+
+/**
+ * Find the alleys: the T01 lots form a grid inside each block, so a band across the block that no
+ * street-level box overlaps runs the block's full depth. Plazas and megatower blocks have none.
+ */
+export function buildAlleyTable(plan: Pick<CityPlan, 'boxes' | 'boxCount' | 'cells'>): AlleyTable {
+  const width = CELLS * ALLEY_TEXELS;
+  const data = new Float32Array(width * CELLS * 4);
+  // Per cell and axis, the extents of the boxes across that axis' alleys.
+  const spans: [number, number][][][] = Array.from({ length: CELLS * CELLS }, () => [[], []]);
+  for (let b = 0; b < plan.boxCount; b++) {
+    const o = b * BOX_STRIDE;
+    if (plan.boxes[o + BOX.y0]! >= ALLEY_GROUND) continue;
+    const x = plan.boxes[o + BOX.cx]!, z = plan.boxes[o + BOX.cz]!;
+    const hx = plan.boxes[o + BOX.sx]! / 2, hz = plan.boxes[o + BOX.sz]! / 2;
+    const cx = imod(Math.floor(x / CELL), CELLS), cz = imod(Math.floor(z / CELL), CELLS);
+    const lx = x - Math.floor(x / CELL) * CELL, lz = z - Math.floor(z / CELL) * CELL;
+    const cell = spans[cz * CELLS + cx]!;
+    cell[0]!.push([lz - hz, lz + hz]);
+    cell[1]!.push([lx - hx, lx + hx]);
+  }
+  let count = 0;
+  for (let cz = 0; cz < CELLS; cz++) {
+    for (let cx = 0; cx < CELLS; cx++) {
+      const cell = cz * CELLS + cx;
+      const district = plan.cells[cell * CELL_STRIDE + CELL_FIELD.district]!;
+      if (district === DISTRICT.plaza || district === DISTRICT.mega) continue;
+      for (const axis of [0, 1] as const) {
+        const list = spans[cell]![axis]!.slice().sort((a, b) => a[0] - b[0]);
+        const merged: [number, number][] = [];
+        for (const [a, b] of list) {
+          const last = merged[merged.length - 1];
+          if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+          else merged.push([a, b]);
+        }
+        const gaps: [number, number][] = [];
+        for (let i = 1; i < merged.length; i++) {
+          const lo = merged[i - 1]![1], hi = merged[i]![0];
+          if (hi - lo >= ALLEY_MIN_WIDTH) gaps.push([(lo + hi) / 2, (hi - lo) / 2]);
+        }
+        // The widest three, in order across the block.
+        const kept = gaps.sort((a, b) => b[1] - a[1]).slice(0, ALLEYS_PER_AXIS).sort((a, b) => a[0] - b[0]);
+        const at = (cz * width + cx * ALLEY_TEXELS + axis * 2) * 4;
+        kept.forEach(([centre, half], k) => {
+          data[at + k] = centre;
+          data[at + 4 + k] = half;
+        });
+        data[at + 3] = kept.length;
+        count += kept.length;
+      }
+    }
+  }
+  return { data, width, height: CELLS, count };
+}
+
+/** 4 floats per instance: cell offset from the camera's cell along x and z, slot in the cell, 0. */
+export function buildBlockField(perCell: number): Float32Array {
+  const n = Math.max(0, Math.round(perCell));
+  const side = 2 * BLOCK_REACH + 1;
+  const out = new Float32Array(side * side * n * 4);
+  let o = 0;
+  for (let dz = -BLOCK_REACH; dz <= BLOCK_REACH; dz++) {
+    for (let dx = -BLOCK_REACH; dx <= BLOCK_REACH; dx++) {
+      for (let p = 0; p < n; p++) {
+        out[o++] = dx;
+        out[o++] = dz;
+        out[o++] = p;
+        out[o++] = 0;
+      }
+    }
+  }
+  return out;
+}
+
+export type BlockMode = 'alley' | 'ring' | 'cross' | 'stand';
+
+export interface BlockWalker {
+  readonly show: boolean;
+  readonly mode: BlockMode;
+  /** Tile coordinates (not wrapped into the tile). */
+  readonly x: number;
+  readonly z: number;
+  /** Cell it is in, 0..CELLS-1. */
+  readonly cx: number;
+  readonly cz: number;
+  /** Whole trips (there and back, or round) per loop; 0 when standing. */
+  readonly laps: number;
+  /** Metres walked per lap. */
+  readonly lapLength: number;
+}
+
+/**
+ * Where block slot (dx, dz, p) stands for a camera at (camX, camZ), as the vertex shader computes it.
+ * `perCell` is the number of slots per cell the field was built with.
+ */
+export function blockWalkerAt(
+  alleys: AlleyTable, cells: Uint8Array, camX: number, camZ: number, loop: number, dx: number, dz: number, p: number, perCell: number,
+): BlockWalker {
+  const cellXF = Math.floor(camX / CELL) + dx;
+  const cellZF = Math.floor(camZ / CELL) + dz;
+  const cx = imod(cellXF, CELLS), cz = imod(cellZF, CELLS);
+  const district = cells[(cz * CELLS + cx) * CELL_STRIDE + CELL_FIELD.district]!;
+  const share = CROWD_BY_DISTRICT[district] ?? 1;
+  const rect = cellRect(cx, cz);
+  const x0 = cellXF * CELL + rect.x0, x1 = cellXF * CELL + rect.x1;
+  const z0 = cellZF * CELL + rect.z0, z1 = cellZF * CELL + rect.z1;
+  const id = cz * CELLS + cx + BLOCK_HASH_BASE;
+  const r1 = glslHash33(id, p, 11);
+  const r2 = glslHash33(id, p, 12);
+  const r4 = glslHash33(id, p, 14);
+  const none: BlockWalker = { show: false, mode: 'alley', x: 0, z: 0, cx, cz, laps: 0, lapLength: 0 };
+
+  if (district === DISTRICT.plaza) {
+    if (!(p + 0.5 < perCell * share)) return none;
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+    const hx = (x1 - x0) / 2, hz = (z1 - z0) / 2;
+    if (r4[0] < PLAZA_RING_SHARE + PLAZA_STAND_SHARE) {
+      const standing = r4[0] >= PLAZA_RING_SHARE;
+      const radius = PLAZA_RING_MIN + (PLAZA_RING_MAX - PLAZA_RING_MIN) * r4[1];
+      const speed = 1 + 0.5 * r1[1];
+      const laps = standing ? 0 : Math.max(1, Math.floor((speed * LOOP_SECONDS) / (2 * Math.PI * radius)));
+      const dir = r4[2] < 0.5 ? -1 : 1;
+      const a = 2 * Math.PI * fract(dir * laps * loop + r1[2]);
+      return {
+        show: true, mode: standing ? 'stand' : 'ring', x: mx + radius * Math.cos(a), z: mz + radius * Math.sin(a), cx, cz,
+        laps, lapLength: 2 * Math.PI * radius,
+      };
+    }
+    const along0 = r4[2] < 0.5;
+    const ha = along0 ? hx : hz, hp = along0 ? hz : hx;
+    const sign = fract(r4[2] * 7) < 0.5 ? -1 : 1;
+    const offset = sign * (PLAZA_CROSS_CENTRE + (hp - PLAZA_CROSS_EDGE - PLAZA_CROSS_CENTRE) * r4[1]);
+    const laps = Math.floor(12 + 11.99 * r1[1]);
+    const tri = Math.abs(2 * fract(laps * loop + r1[2]) - 1);
+    const along = -ha + 1 + (2 * ha - 2) * tri;
+    return {
+      show: true, mode: 'cross', x: mx + (along0 ? along : offset), z: mz + (along0 ? offset : along), cx, cz,
+      laps, lapLength: 2 * (2 * ha - 2),
+    };
+  }
+
+  // An alley: slot p belongs to alley place p mod 6.
+  const a = imod(p, 6);
+  const axis = a >= 3 ? 1 : 0;
+  const k = a - 3 * axis;
+  const q = Math.floor(p / 6);
+  const at = (cz * alleys.width + cx * ALLEY_TEXELS + axis * 2) * 4;
+  const n = alleys.data[at + 3]!;
+  if (!(k + 0.5 < n) || !(q + 0.5 < (perCell / 6) * share)) return none;
+  const centre = alleys.data[at + k]!;
+  const half = alleys.data[at + 4 + k]!;
+  const standing = r2[0] < ALLEY_STANDING;
+  const laps = standing ? 0 : Math.floor(12 + 11.99 * r1[1]);
+  const tri = Math.abs(2 * fract(laps * loop + r1[2]) - 1);
+  const lo = (axis === 0 ? x0 : z0) + 0.5, hi = (axis === 0 ? x1 : z1) - 0.5;
+  const along = lo + (hi - lo) * tri;
+  const lateral = standing
+    ? (r1[0] < 0.5 ? -1 : 1) * Math.max(half - ALLEY_STAND_MARGIN, 0)
+    : (2 * r1[0] - 1) * Math.max(half - ALLEY_WALK_MARGIN, 0);
+  const across = (axis === 0 ? cellZF : cellXF) * CELL + centre + lateral;
+  return {
+    show: true, mode: 'alley', x: axis === 0 ? along : across, z: axis === 0 ? across : along, cx, cz,
+    laps, lapLength: 2 * (hi - lo),
   };
 }
