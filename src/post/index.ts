@@ -5,7 +5,7 @@ import {
 } from 'postprocessing';
 import type { FramePipeline, FrameState, PipelineHost } from '../contracts/layer';
 import { AdaptiveScale } from './adaptive';
-import { GradeEffect, type GradeSettings } from './grade';
+import { GradeEffect, crtPitch, type GradeSettings } from './grade';
 import { createReflectionPass, type ReflectionPass } from './reflection';
 
 /** Numbers T13 may retune. */
@@ -68,6 +68,7 @@ export function createPipeline(host: PipelineHost): FramePipeline {
     composer.setSize(cssWidth, cssHeight, false);
     renderer.getDrawingBufferSize(drawingSize);
     uniforms.uResolution.value.copy(drawingSize);
+    grade.set('uCrtPitch', crtPitch(drawingSize.y / Math.max(1, cssHeight)));
     if (reflection) reflection.setSize(drawingSize.x * quality.reflectionScale, drawingSize.y * quality.reflectionScale);
   }
 

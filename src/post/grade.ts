@@ -5,11 +5,15 @@ import { BlendFunction, Effect } from 'postprocessing';
 // The effect composer looks for the identifier that marks a UV-transforming effect by text match,
 // so this shader must define only mainImage and must not mention that identifier even in comments.
 const FRAGMENT = /* glsl */ `
+#define CRT_SCAN 0.6
+#define CRT_MASK 0.3
+#define CRT_CORNER 0.35
 uniform float uExposure;
 uniform float uCurve;
 uniform float uHold;
 uniform float uVignette;
 uniform float uCrt;
+uniform float uCrtPitch;
 uniform float uGrain;
 uniform float uSeed;
 
@@ -50,9 +54,21 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
   vec2 px = uv * resolution;
   if (uCrt > 0.0) {
-    float line = 0.5 + 0.5 * cos(px.y * 3.14159265);
-    c *= 1.0 - uCrt * 0.28 * line;
-    c *= 1.0 + uCrt * 0.04 * cos(px.x * 2.0943951);
+    // Scanlines and an aperture grille, uCrtPitch device pixels per line and per RGB triad, so they
+    // keep the same size on screen at any pixel ratio or render scale.
+    float k = 6.2831853 / uCrtPitch;
+    float lum = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    float line = 0.5 + 0.5 * cos(px.y * k);
+    // A bright beam spreads into the gap, so the lines show most in the mids and darks.
+    float scan = 1.0 - uCrt * CRT_SCAN * (1.0 - 0.45 * lum) * (1.0 - line);
+    float phase = px.x * k;
+    vec3 grille = 0.5 + 0.5 * cos(vec3(phase, phase - 2.0943951, phase + 2.0943951));
+    vec3 mask = mix(vec3(1.0), grille, uCrt * CRT_MASK);
+    // Give back most of the average light the lines and the grille take away.
+    float kept = (1.0 - 0.5 * uCrt * CRT_SCAN) * (1.0 - 0.5 * uCrt * CRT_MASK);
+    c *= scan * mask * mix(1.0, 1.0 / kept, 0.8);
+    // The corners of a curved tube fall off faster.
+    c *= 1.0 - uCrt * CRT_CORNER * smoothstep(0.18, 0.5, v);
   }
   // Grain, scaled with brightness so it stays about as visible in the darks as in the mids once the
   // output is sRGB encoded. It also breaks up banding in the dark sky.
@@ -72,6 +88,17 @@ export interface GradeSettings {
   grain: number;
 }
 
+/** CSS pixels per scanline (and per RGB triad of the grille). */
+export const CRT_PITCH_CSS = 3;
+
+/**
+ * Device pixels per scanline for a drawing buffer at this many device pixels per CSS pixel. Never
+ * under 3, the least that draws a line, a gap and the grille's three colours without aliasing.
+ */
+export function crtPitch(devicePerCss: number): number {
+  return Math.max(3, CRT_PITCH_CSS * devicePerCss);
+}
+
 export class GradeEffect extends Effect {
   constructor(exposure: Uniform, crt: Uniform, settings: GradeSettings) {
     super('GradeEffect', FRAGMENT, {
@@ -82,13 +109,14 @@ export class GradeEffect extends Effect {
         ['uHold', new Uniform(settings.hold)],
         ['uVignette', new Uniform(settings.vignette)],
         ['uCrt', crt],
+        ['uCrtPitch', new Uniform(crtPitch(1))],
         ['uGrain', new Uniform(settings.grain)],
         ['uSeed', new Uniform(0)],
       ]),
     });
   }
 
-  set(name: 'uCurve' | 'uHold' | 'uVignette' | 'uGrain' | 'uSeed', value: number): void {
+  set(name: 'uCurve' | 'uHold' | 'uVignette' | 'uGrain' | 'uSeed' | 'uCrtPitch', value: number): void {
     this.uniforms.get(name)!.value = value;
   }
 }

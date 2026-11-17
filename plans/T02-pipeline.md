@@ -5,7 +5,7 @@ status: done
 depends_on: [T00]
 owns: [src/post/**, tests/unit/post/**, plans/T02-pipeline.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 # T02: frame pipeline
@@ -68,6 +68,13 @@ bound before the first frame. Proof: no shader compile is logged after the first
 **M6. Sun shafts (stretch).** A depth-masked radial blur from the sun's screen position, `high` tier
 only, strength from the mood. Only if M1 to M5 are done and budget remains.
 
+**M7. A CRT look you can see (revision, 2026-11-16).** The operator could not tell whether the menu's
+CRT switch did anything. Scanlines one device pixel apart blur into a slight dimming at normal
+viewing size, and on a phone's 2.6x screen they are finer still. Size them in CSS pixels instead,
+make them deeper, add an RGB aperture grille at the same pitch and faster falloff in the corners,
+and give back most of the average light they take. Proof: the line pitch in CSS pixels is the same
+at every pixel ratio (unit test); screenshots on and off at 1x and at a phone's ratio, viewed.
+
 ## 6. Validation and acceptance
 
 - `npm run check:task -- T02` exits 0.
@@ -91,6 +98,20 @@ No persistent state. `?post=0` always gives the unprocessed frame for comparison
 - [x] 2026-11-14 M4 adaptive resolution: `adaptive.ts`, five unit tests.
 - [x] 2026-11-14 M5 precompile: `warmUp()` compiles with the composer target bound.
 - [ ] M6 sun shafts (stretch): not built. Dropped by T13 (see its Decision log).
+- [x] 2026-11-16 M7 visible CRT: `grade.ts` draws scanlines and an aperture grille `uCrtPitch` device
+  pixels apart, `crtPitch()` gives 3 CSS pixels per line and never under 3 device pixels, and
+  `index.ts` sets it with every resize or render-scale change. Lines are deeper in the darks and
+  mids than in highlights; most of the lost light is given back. `CRT_STRENGTH` (0.7, T12) unchanged.
+  Evidence:
+  - The old effect did run: at `crt=0.7` the mean of `view=high` fell from 97.5 to 92.8 of 255, but
+    the lines were invisible at 1:1 (alternate rows, 2 device pixels per cycle).
+  - `tests/unit/post/crt.test.ts` (2 tests). Shown failing once with the pitch at 2 CSS pixels
+    ("expected 2 to be close to 3"); restored, passes.
+  - Viewed, `layers=all`, `t=20`, no console errors or shader warnings: `shots/crt/new-high-0.7.png`
+    (1600 x 900 at 1x: lines plain across the sky and facades, corners darker), `new-zoom-0.7.png`
+    (4x crop: line, gap and the RGB stripes), `phone-0.7.png` (915 x 412 CSS at 2.625x, `q=medium`:
+    the same line size on screen). Mean at `crt=0.7` 94.4 against 97.5 off.
+  - `npm run check:task -- T02` PASS; `npm run check` 375 of 375.
 
 Evidence:
 
@@ -116,6 +137,11 @@ Evidence:
   library effects: fewer shader stages, and scanline strength is a uniform, so nothing is toggled at
   run time.
 
+- 2026-11-16: The CRT pitch is in CSS pixels (3 per line, one RGB triad per line), not device pixels,
+  so it reads the same on a monitor and a phone, and never under 3 device pixels so a lowered render
+  scale cannot alias it. It needs the device-per-CSS ratio, which `src/post` already has at resize, so
+  the pitch is a private uniform of the grade and no contract changes.
+
 ## 11. Contract change requests
 
 None.
@@ -126,3 +152,9 @@ Done except the stretch milestone. Bloom, grade, reflection and adaptive scale r
 draw calls with the probe. Not verified: that no program compiles after the first frame (the warm-up
 exists but was not instrumented); behaviour of the adaptive scale on a real vsynced display (unit
 tests only); the `medium` and `low` tiers on screen; human check H-T02-1.
+
+**M7 outcome (2026-11-16).** The CRT switch now shows plainly: scanlines and an aperture grille about
+3 CSS pixels apart on any screen, and darker corners. The operator viewed the production build on
+the PC and on the Android phone over the tailnet and reported it looks good on both, at the existing
+strength of 0.7 (2026-11-16). Not verified: frame cost, not measured (a few ALU ops in a pass that
+already runs).
