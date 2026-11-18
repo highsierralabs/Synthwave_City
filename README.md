@@ -52,9 +52,12 @@ browser with WebGL2.
 | Stats | `H` |
 | Menu | `Esc` |
 
-The city starts on an automatic tour. Move the mouse or press a movement key to take over; `Space`
-hands control back. Buildings are solid: you slide along them. On a touchscreen, drag to look, hold
-to fly, and add a second finger to boost.
+The city starts on an automatic tour. While it flies you can look around: drag with a finger or the
+mouse to turn the view (it drifts back to the road a few seconds after you let go), and pinch
+or use the mouse wheel to zoom. Double tap or double-click to take the controls, or press a movement
+key; `Space` hands control back. Buildings are solid: you slide along them. When you fly yourself on
+a touchscreen, drag to look, hold to fly, and add a second finger to boost; the Back to tour button
+returns to the ride.
 
 The menu has three moods (Sunset, Midnight, Miami), three detail levels (changing it reloads the
 page), sound on or off, and an optional CRT scanline look. Choices are remembered in this browser.

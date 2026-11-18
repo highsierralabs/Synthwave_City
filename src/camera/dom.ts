@@ -54,16 +54,20 @@ export function attachDom(element: HTMLElement, mapper: InputMapper, onAction: (
     if (doc.visibilityState === 'hidden') mapper.reset();
   };
 
+  const lock = (): void => {
+    if (doc.pointerLockElement === element) return;
+    try {
+      const granted: unknown = element.requestPointerLock();
+      if (granted instanceof Promise) granted.catch(() => undefined);
+    } catch {
+      // No pointer lock here: dragging with the button held still looks around.
+    }
+  };
+
   const onPointerDown = (e: PointerEvent): void => {
     if (e.pointerType === 'mouse') {
-      if (e.button === 0 && doc.pointerLockElement !== element) {
-        try {
-          const granted: unknown = element.requestPointerLock();
-          if (granted instanceof Promise) granted.catch(() => undefined);
-        } catch {
-          // No pointer lock here: dragging with the button held still looks around.
-        }
-      }
+      // On the tour a click is a drag to look around, or half a double click: no lock yet.
+      if (e.button === 0 && !mapper.tourLook) lock();
     } else {
       e.preventDefault();
     }
@@ -75,7 +79,20 @@ export function attachDom(element: HTMLElement, mapper: InputMapper, onAction: (
     mapper.pointerDown(e);
   };
   const onPointerMove = (e: PointerEvent): void => mapper.pointerMove(e, doc.pointerLockElement === element);
-  const onPointerUp = (e: PointerEvent): void => mapper.pointerUp(e);
+  const up = (e: PointerEvent, cancelled: boolean): void => {
+    const action = mapper.pointerUp(e, cancelled);
+    if (action === null) return;
+    // A double click leaves the tour for free flight, which a mouse flies with pointer lock. The
+    // press that just ended is the user gesture the browser asks for.
+    if (e.pointerType === 'mouse') lock();
+    onAction(action);
+  };
+  const onPointerUp = (e: PointerEvent): void => up(e, false);
+  const onPointerCancel = (e: PointerEvent): void => up(e, true);
+  const onWheel = (e: WheelEvent): void => {
+    // Only on the tour; otherwise the browser keeps the wheel (and ctrl+wheel page zoom).
+    if (mapper.wheel(e)) e.preventDefault();
+  };
 
   const onLockChange = (): void => {
     const locked = doc.pointerLockElement === element;
@@ -104,7 +121,8 @@ export function attachDom(element: HTMLElement, mapper: InputMapper, onAction: (
   element.addEventListener('pointerdown', onPointerDown);
   element.addEventListener('pointermove', onPointerMove);
   element.addEventListener('pointerup', onPointerUp);
-  element.addEventListener('pointercancel', onPointerUp);
+  element.addEventListener('pointercancel', onPointerCancel);
+  element.addEventListener('wheel', onWheel, { passive: false });
   win.addEventListener('gamepadconnected', onPadConnected);
   win.addEventListener('gamepaddisconnected', onPadDisconnected);
 
@@ -125,7 +143,8 @@ export function attachDom(element: HTMLElement, mapper: InputMapper, onAction: (
       element.removeEventListener('pointerdown', onPointerDown);
       element.removeEventListener('pointermove', onPointerMove);
       element.removeEventListener('pointerup', onPointerUp);
-      element.removeEventListener('pointercancel', onPointerUp);
+      element.removeEventListener('pointercancel', onPointerCancel);
+      element.removeEventListener('wheel', onWheel);
       win.removeEventListener('gamepadconnected', onPadConnected);
       win.removeEventListener('gamepaddisconnected', onPadDisconnected);
       element.style.touchAction = previousTouchAction;

@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11]
 owns: [index.html, src/main.ts, src/app/**, tests/unit/app/**, README.md, plans/T12-app-shell.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**, src/engine/**, src/city/**, src/audio/**, src/camera/**]
-updated: 2026-11-15
+updated: 2026-11-17
 ---
 
 # T12: app shell
@@ -276,6 +276,13 @@ Evidence:
   median 6.9 ms, p99 7.1 ms, 59 draw calls.
 - [x] 2026-11-15 README: "Where it came from" links `docs/user_prompt.md`, the operator's starting
   prompt (T14 owns the file).
+
+- [x] 2026-11-17 Text for T11 M6 (free look on the tour, operator request): the tour hints in
+  `src/app/app.ts` now name drag, pinch or wheel, and double tap or double click. The desktop
+  help in `index.html` gains "Drag / wheel" and "Double-click" rows, the touch help gets one line
+  for the tour and one for flying, and the README's controls paragraph is rewritten. Nothing else
+  in the app changed: the `'mode'` action already updates the hint and the Back to tour button.
+  `npm run check:task -- T12` PASS; menus looked at on desktop and at 412 px.
 
 ## 9. Surprises and discoveries
 

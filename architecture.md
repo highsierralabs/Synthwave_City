@@ -363,7 +363,11 @@ pulses either way.
   The camera is a sphere that slides along building boxes (`plan.collide`).
 - **Viewpoints** `1` to `6`, derived from landmarks.
 - **Touch:** drag to look, hold to fly, second finger to boost.
-- Any input in the tour hands control to the viewer; `Space` returns to the tour.
+- **Free look on the tour** (operator request, 2026-11-17): a drag (finger or left mouse button)
+  turns the view while the tour flies on, and eases back a few seconds after it ends; a pinch
+  or the wheel zooms the lens for the rest of the tour; a double tap or double click hands control
+  to the viewer from the view they chose. Keys and the gamepad hand control over at once. `Space`
+  returns to the tour.
 
 The camera writes a `CameraPose` (position in tile coordinates, orientation, field of view). It never
 touches three objects directly.

@@ -74,6 +74,18 @@ export const BLEND_TIME = 2.5;
 export const REDUCED_RATE = 0.6;
 /** Yaw and pitch rate of the arrow keys and a gamepad stick at full deflection, radians per second. */
 export const TURN_RATE = 1.3;
+/** Seconds a free look on the tour holds after the last drag before it eases back. */
+export const LOOK_HOLD = 5;
+/** Narrowest and widest lens a pinch can choose on the tour, degrees. */
+export const MIN_TOUR_FOV = 25;
+export const MAX_TOUR_FOV = 85;
+
+/** Stiffness of the spring that returns a free look to the tour's own direction; about 3 s to settle. */
+const LOOK_RETURN_OMEGA = 1.6;
+/** How fast the lens follows a pinch, and how fast it returns to CAMERA_FOV off the tour. */
+const LENS_FOLLOW = 14;
+const LENS_RETURN = 3;
+const DEG = Math.PI / 180;
 
 const JOIN_OMEGA = 1.6;
 const JOIN_REACH = 120;
@@ -120,6 +132,15 @@ class Rig implements CameraRig {
   private freeRoll = 0;
   private fovKick = 0;
 
+  // Free look on the tour: an offset from the tour's view, and a lens.
+  private readonly lookYawRate = { v: 0 };
+  private readonly lookPitchRate = { v: 0 };
+  private lookYaw = 0;
+  private lookPitch = 0;
+  private lookIdle = 0;
+  private tourFov = CAMERA_FOV;
+  private lens = CAMERA_FOV;
+
   // The pose and velocity last written.
   private ox = 0;
   private oy = 0;
@@ -163,6 +184,7 @@ class Rig implements CameraRig {
     this.phase = options.mode === 'free' ? PHASE.free : PHASE.tour;
     this.tour = new Tour(plan, this.seed);
     this.viewpoints = computeViewpoints(plan);
+    this.input.setTourLook(this.mode === 'tour');
     this.writeTour();
   }
 
@@ -206,6 +228,7 @@ class Rig implements CameraRig {
     this.easeT = 0;
     this.idle = 0;
     this.phase = PHASE.ease;
+    this.dropLook();
     if (this.reduced) this.arrive();
     if (was !== 'free') this.emit('mode');
     this.emit(`viewpoint:${index}`);
@@ -223,6 +246,7 @@ class Rig implements CameraRig {
 
   handleKey(action: KeyAction): void {
     if (action === 'toggle') this.setMode(this.mode === 'tour' ? 'free' : 'tour');
+    else if (action === 'takeover') this.setMode('free');
     else if (action.startsWith('viewpoint:')) this.goToViewpoint(Number(action.slice(10)));
     else this.emit(action);
   }
@@ -233,7 +257,7 @@ class Rig implements CameraRig {
 
   // ---- changes of phase
 
-  /** Hand control to the viewer from wherever the camera is, keeping its velocity. */
+  /** Hand control to the viewer from wherever the camera is, keeping its velocity and the view. */
   private takeOver(): void {
     const f = this.free;
     if (this.phase !== PHASE.join) {
@@ -243,13 +267,54 @@ class Rig implements CameraRig {
       f.vx = this.ovx;
       f.vy = this.ovy;
       f.vz = this.ovz;
+      // The pose last written already carries any free look.
       f.yaw = this.oYaw;
       f.pitch = clamp(this.oPitch, -MAX_PITCH, MAX_PITCH);
       this.freeRoll = this.oRoll;
+    } else {
+      // The join flies `free` itself; the free look was only added on output.
+      f.yaw = wrapDelta(f.yaw + this.lookYaw, 0, TWO_PI);
+      f.pitch = clamp(f.pitch + this.lookPitch, -MAX_PITCH, MAX_PITCH);
     }
     this.phase = PHASE.free;
     this.idle = 0;
+    this.dropLook();
     this.emit('mode');
+  }
+
+  /** Off the tour: no look offset, and the lens heads back to CAMERA_FOV. Tells the mapper. */
+  private dropLook(): void {
+    this.lookYaw = this.lookPitch = 0;
+    this.lookYawRate.v = this.lookPitchRate.v = 0;
+    this.lookIdle = 0;
+    this.tourFov = CAMERA_FOV;
+    this.input.setTourLook(this.mode === 'tour');
+  }
+
+  /** On the tour: add the viewer's free look to the pose just written, and take any zoom. */
+  private applyLook(dt: number): void {
+    const input = this.input.state;
+    if (input.panYaw !== 0 || input.panPitch !== 0) {
+      this.lookYaw = wrapDelta(this.lookYaw + input.panYaw, 0, TWO_PI);
+      this.lookPitch += input.panPitch;
+      this.lookIdle = 0;
+      this.lookYawRate.v = this.lookPitchRate.v = 0;
+    } else {
+      this.lookIdle += dt;
+      if (this.lookIdle > LOOK_HOLD) {
+        // Ease back, starting from rest, the short way round.
+        this.lookYaw = springValue(this.lookYaw, this.lookYawRate, this.lookYaw, LOOK_RETURN_OMEGA, dt);
+        this.lookPitch = springValue(this.lookPitch, this.lookPitchRate, this.lookPitch, LOOK_RETURN_OMEGA, dt);
+      }
+    }
+    // Keep the sum inside the free-flight pitch limit, so dragging back responds at once.
+    this.lookPitch = clamp(this.lookPitch, -MAX_PITCH - this.oPitch, MAX_PITCH - this.oPitch);
+    this.oYaw = wrapDelta(this.oYaw + this.lookYaw, 0, TWO_PI);
+    this.oPitch += this.lookPitch;
+    if (input.zoom !== 1 && input.zoom > 0) {
+      const half = Math.atan(Math.tan(this.tourFov * DEG * 0.5) * input.zoom);
+      this.tourFov = clamp(2 * half / DEG, MIN_TOUR_FOV, MAX_TOUR_FOV);
+    }
   }
 
   /** True if a sphere can travel straight from the camera to a point at height y without touching a box. */
@@ -338,6 +403,7 @@ class Rig implements CameraRig {
     this.yawRate.v = 0;
     this.pitchRate.v = 0;
     this.phase = PHASE.join;
+    this.input.setTourLook(true);
     // A mouse that is still locked would take over again at its next twitch.
     this.binding?.release();
     this.emit('mode');
@@ -404,12 +470,20 @@ class Rig implements CameraRig {
       default:
         this.updateEase(dt);
     }
+    const touring = this.mode === 'tour';
+    if (touring) this.applyLook(dt);
     // Look that arrived while it could not be used is dropped, not saved up.
     input.lookYaw = 0;
     input.lookPitch = 0;
+    input.panYaw = 0;
+    input.panPitch = 0;
+    input.zoom = 1;
 
     const kick = this.phase === PHASE.free && !this.reduced ? 7 * smoothstep(90, 420, this.speed) : 0;
     this.fovKick += (kick - this.fovKick) * damp(3, dt);
+    const lensTarget = touring ? this.tourFov : CAMERA_FOV;
+    this.lens += (lensTarget - this.lens) * damp(touring ? LENS_FOLLOW : LENS_RETURN, dt);
+    if (Math.abs(lensTarget - this.lens) < 0.01) this.lens = lensTarget;
 
     pose.x = this.ox;
     pose.y = this.oy;
@@ -417,7 +491,7 @@ class Rig implements CameraRig {
     pose.yaw = this.oYaw;
     pose.pitch = this.oPitch;
     pose.roll = this.oRoll;
-    pose.fov = CAMERA_FOV + Math.round(this.fovKick * 20) / 20;
+    pose.fov = Math.round((this.lens + this.fovKick) * 20) / 20;
   }
 
   private writeTour(): void {

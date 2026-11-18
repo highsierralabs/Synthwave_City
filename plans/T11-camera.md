@@ -5,7 +5,7 @@ status: done
 depends_on: [T00, T01]
 owns: [src/camera/**, tests/unit/camera/**, plans/T11-camera.md]
 reads: [architecture.md, Agents.md, src/contracts/**, src/core/**]
-updated: 2026-11-15
+updated: 2026-11-17
 ---
 
 # T11: camera
@@ -115,6 +115,39 @@ departure in the numbers: the tour slows below 25 m/s inside corners (19 m/s on 
 side of a street corner, about 13.5 m/s at its apex), because a smoothed corner that keeps 3.5 m
 from the building line of a 24 m street cannot be taken faster. See the Decision log.
 
+**M6. Free look on the tour (operator request, 2026-11-17).** This replaces part of M5: a drag or
+pinch no longer takes over from the tour. While the mode is `'tour'` (the tour, the return to it and
+the blend):
+
+- One finger dragging, or the left mouse button dragging, turns the view away from the tour's own
+  direction (same sense as free flight: drag right to look right). The tour keeps flying. The offset
+  holds for `LOOK_HOLD` (5 s) after the last drag, then a critically damped spring eases it back to
+  zero, so a corner never leaves the viewer staring at a wall. Pitch is kept inside the free-flight
+  limit.
+- Two fingers pinching, the mouse wheel, or a trackpad pinch (which browsers send as a wheel event
+  with `ctrlKey`) zoom the lens: field of view between `MIN_TOUR_FOV` and `MAX_TOUR_FOV`, scaled in
+  `tan(fov / 2)` so the picture follows the fingers. The zoom stays for the rest of the tour and
+  eases back to `CAMERA_FOV` once the tour is left.
+- A double tap, or a double click, leaves the tour for free flight from the panned view (a mouse
+  also gets pointer lock). Two taps count as a double tap when each is short and still, and the
+  second starts soon after and near the first. Nothing in free flight changes: double taps there do
+  nothing new, and Back to tour and `Space` remain the way back.
+- Keys and the gamepad still take over at once, as before. A mouse click on the tour no longer asks
+  for pointer lock.
+
+Work: `input.ts` gets a `tourLook` switch that the rig keeps equal to `mode === 'tour'`, separate
+pan and zoom accumulators (so the rig's `input.active` take-over test does not see them), per-touch
+positions for the pinch, tap timing, and `wheel()`. `dom.ts` forwards `wheel`, skips pointer lock on
+the tour, and reports a double tap as the new key action `'takeover'`. `rig.ts` applies the offset
+and lens, carries the panned view into free flight, and eases the lens back. The app's hints and
+help text (T12's paths) describe the new controls, and architecture.md section 7 is amended to
+match; both under the operator's instruction.
+
+Proof: unit tests for the mapper (pan, pinch, wheel, taps that are and are not double taps), the DOM
+binding (no lock on the tour, wheel cancelled on the tour only, double click takes over and locks)
+and the rig (pan does not take over, drifts back, the zoom stays and resets, double tap leaves with
+the view kept); and a live check in Chromium with dispatched pointer and wheel events.
+
 ## 6. Validation and acceptance
 
 - `npm run check:task -- T11` exits 0, including the 30-minute tour collision test and the
@@ -123,6 +156,10 @@ from the building line of a 24 m street cannot be taken faster. See the Decision
   to this module when it exists): a sequence of 8 frames 1.5 s apart along the tour, viewed, showing
   a smooth path with banking and no clipping through geometry.
 - Pose values never contain `NaN` after 10 minutes of random input (fuzz test).
+
+- M6: the camera tests above pass with the new cases; in the shipped page (`?autostart=1`), a
+  dispatched drag turns the view and leaves `Tour` showing, a dispatched pinch and wheel change the
+  field of view, and a dispatched double tap switches to `Free flight` without a jump in view.
 
 Human checks: H-T11-1, the tour is pleasant to watch and never nauseating; H-T11-2, flight feels
 responsive with a real mouse; H-T11-3, touch control on a real phone.
@@ -153,7 +190,20 @@ detaches the previous binding first. Tests are pure and safe to re-run. Screensh
   `'station'` in `src/camera/input.ts`, which the rig passes to the app like `mood`. One assertion
   added to `tests/unit/camera/input.test.ts`; `npm run check:task -- T11` PASS, camera tests pass.
 
-Nothing is left open inside the owned paths. The three human checks remain for the operator.
+- [x] 2026-11-17 M6 retune after the operator's tailnet test: `LOOK_HOLD` 2 to 5 s, return spring
+  omega 2.4 to 1.6 (33% slower). The drift-back test now also checks the return is unhurried (a
+  second in, more than 45% of the look remains); at omega 2.4 it failed (0.139 rad left, needs
+  0.202), at 1.6 it passes. `npm run check:task -- T11` PASS, 113 tests.
+- [x] 2026-11-17 M6 free look on the tour: plan revised first, then `input.ts` (tour-look switch,
+  pan and zoom accumulators, per-touch positions, pinch, wheel, tap timing), `dom.ts` (wheel, no
+  lock on the tour, double click locks, `pointercancel` is never a tap), `rig.ts` (offset, hold,
+  spring return, lens, the view carried into free flight), `index.ts` exports. Tests: 93 to 113 in
+  `tests/unit/camera`; six mutations each failed a test. Live check in Chromium on the GPU. The
+  app hints, the help panel and the README (T12 paths) and architecture.md section 7 were changed
+  under the operator's instruction; see T12 Progress.
+
+The three human checks remain for the operator, and M6 adds H-T11-4: free look, pinch and double
+tap on the operator's phone and tablet.
 
 ## 9. Surprises and discoveries
 
@@ -239,6 +289,35 @@ All dated 2026-11-14.
 
 - **`R` is the station key (2026-11-15).** Free, next to `T` for mood, and not used for flight. The
   action list T12 handles grows by one; T12 changed its handler in the same revision.
+
+- **Free look on the tour (M6), all 2026-11-17, operator request.** The operator chose: the view
+  drifts back after a drag, a pinch zooms the lens and the zoom stays for the tour, the mouse gets
+  drag and wheel too, and a double tap only leaves the tour (it does nothing new in free flight).
+  The rest is recorded here:
+  - **A drag on the tour turns the view the same way as in free flight** (drag right to look
+    right), so the sense does not flip when the viewer double taps. Many touch viewers use the
+    other sense (drag the scene). Flipping it is one sign in `pointerMove`, if the phone check
+    (H-T11-4) asks for it.
+  - **A double tap is its own action, `'takeover'`, not `'toggle'`.** It can only leave the tour,
+    so a stale or repeated report can never send the camera back.
+  - **Tap thresholds:** a tap is at most 300 ms and 12 px; the second goes down within 350 ms of
+    the first lifting and within 40 px of it. A second finger, a cancel or a change of pointer
+    kind breaks the pair. Usual platform values, from memory [M]; not measured on a phone.
+  - **Zoom works on `tan(fov / 2)`,** so the picture scales with the spread of the fingers. The lens
+    runs from 25 to 85 degrees. The wheel gives a factor of e every 667 px, and a trackpad pinch
+    (a wheel event with `ctrlKey`) every 100 px. One wheel event can move it by at most e. The
+    wheel is cancelled only on the tour, so browser page zoom is untouched in free flight.
+  - **The look holds 5 s (`LOOK_HOLD`), then a critically damped spring (omega 1.6) brings it back**
+    from rest, in about 3 s. First built with 2 s and omega 2.4. After trying it over the tailnet,
+    the operator asked for a 5 s hold and a return 33% slower (2026-11-17): omega 2.4 x 0.67 = 1.6,
+    which stretches the whole return in time by 1.5x. The operator said drag and pan "feel right". Pitch offset is clamped against the tour pitch so the sum stays inside
+    `MAX_PITCH`, and a drag back responds at once.
+  - **Leaving the tour keeps the view the viewer chose.** `takeOver` copies the panned pose. During
+    the join, where the rig flies `free` itself and the look is only added on output, the offset is
+    folded into `free`. A viewpoint glide starts from the panned view.
+  - **On the tour a mouse click asks for no pointer lock;** a double click asks for it from the
+    `pointerup` that completes it. That relies on the browser's transient user activation from the
+    press [I]; headless Chromium granted it [O]. Keys and the gamepad still take over at once.
 
 ## 11. Contract change requests
 
@@ -363,6 +442,34 @@ script, and the check was moved to the panorama viewpoint.
 - `eslint.config.js`: the block for `src/audio` and `src/camera` forbids `engine`, `post`, `layers`
   and `app`, but not `city` (nor each other). The brief for this task says camera may not import
   `src/city`; lint would not catch it. `src/camera` does not import it (checked with grep).
+
+**M6, free look on the tour (2026-11-17).** Result against the request: on the tour a finger or
+mouse drag turns the view while the tour flies on, and it drifts back 5 s after the drag ends (2 s when first measured below). A pinch
+or the wheel zooms the lens, which stays until the tour is left. A double tap or double click leaves
+for free flight from the chosen view. Evidence, all from runs in this session:
+
+- `npm run check:task -- T11`: PASS, `Test Files 6 passed (6)`, `Tests 113 passed (113)`.
+  `npm run check:task -- T12`: PASS. `npm run plans:check`: OK.
+- Mutations, each restored afterwards. Each one failed the camera tests: dropping the look when
+  taking over from the join; the spring return; the "a finger on the tour does not fly" guard; the
+  double-tap gap check; the "no lock on the tour" check in `dom.ts`; dropping the look on a viewpoint
+  glide.
+- Live, `shots/T11/live-freelook.mjs`, shipped page with `?autostart=1`, ANGLE D3D11 on the RTX 4070
+  SUPER. CDP touch: a 200 px drag gave yaw +0.900 (expected 200 x 0.0045) with the HUD still on
+  Tour, held through 1.2 s, and back to the tour's yaw 4 s later. A 2x pinch gave fov 33.45
+  (expected 33.4), still 33.45 four seconds later. A 0.8 s hold did not take over. A double tap
+  switched to Free flight with a yaw change of 0.000, and the lens returned towards 62 (61.70 after
+  1.5 s). Mouse: a 200 px drag gave yaw -0.440 without pointer lock; a 400 px wheel gave fov 36.50;
+  a double click gave Free flight with pointer lock and no yaw change. No console errors or warnings.
+- Looked at `shots/T11/fl-1` to `fl-5`: the new hint on the tour, the view turned left down a
+  side street, the zoomed lens, and free flight with the toast and Back to tour. Also the menu help
+  on desktop and on a 412 px phone viewport: both readable, and the desktop label "Look / zoom on
+  the tour" wraps to two lines.
+
+Not verified: a real phone or tablet (H-T11-4: feel of the pan speed, pinch, tap thresholds, and
+whether Android Chrome ever turns a fast double tap into something else despite `touch-action:
+none`); a real trackpad pinch; pointer lock on double click in a headed browser other than
+Chromium.
 
 **Retrospective.** Doing the tour first was right: it was the only part whose design could have
 failed, and the kernel idea removed most of the geometry. The screenshots changed two decisions the

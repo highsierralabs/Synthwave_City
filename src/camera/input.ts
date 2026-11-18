@@ -9,6 +9,20 @@ export const MOUSE_SENSITIVITY = 0.0022;
 export const TOUCH_SENSITIVITY = 0.0045;
 /** Gamepad stick dead zone. */
 export const STICK_DEAD_ZONE = 0.16;
+/** A tap is a press no longer than this, milliseconds... */
+export const TAP_TIME = 300;
+/** ...that moves no further than this, pixels. */
+export const TAP_SLOP = 12;
+/** The second tap of a double tap goes down within this long after the first one lifted, milliseconds... */
+export const DOUBLE_TAP_GAP = 350;
+/** ...and this close to where the first one went down, pixels. */
+export const DOUBLE_TAP_REACH = 40;
+/** Lens zoom per pixel of wheel travel (a factor of e every 1/WHEEL_ZOOM pixels). */
+export const WHEEL_ZOOM = 0.0015;
+/** The same for a trackpad pinch, which browsers send as small wheel steps with ctrlKey set. */
+export const PINCH_WHEEL_ZOOM = 0.01;
+/** Fingers closer than this, pixels, do not zoom: the ratio of tiny distances is noise. */
+const PINCH_MIN = 8;
 
 /** What the controls ask for right now. Axes are -1..1. */
 export interface InputState {
@@ -25,6 +39,14 @@ export interface InputState {
   /** Steady turning from keys or a stick, -1..1: positive turns left, positive tilt looks up. */
   turn: number;
   tilt: number;
+  /**
+   * Free look on the tour, radians, waiting to be applied: a drag while `tourLook` is on. Same signs
+   * as lookYaw and lookPitch. Kept apart from them so it never counts as taking over. The rig zeroes them.
+   */
+  panYaw: number;
+  panPitch: number;
+  /** Lens zoom waiting to be applied, as a factor on tan(fov / 2): below 1 zooms in. The rig resets it to 1. */
+  zoom: number;
 }
 
 /** The fields of a KeyboardEvent the mapper reads. */
@@ -46,13 +68,25 @@ export interface PointerLike {
   readonly movementX?: number;
   readonly movementY?: number;
   readonly button?: number;
+  /** Event time, milliseconds. Taps are only recognised when it is present. */
+  readonly timeStamp?: number;
+}
+
+/** The fields of a WheelEvent the mapper reads. */
+export interface WheelLike {
+  readonly deltaY: number;
+  /** 0 pixels, 1 lines, 2 pages. */
+  readonly deltaMode?: number;
+  readonly ctrlKey?: boolean;
 }
 
 /**
- * Actions a key press can stand for. 'toggle' and 'viewpoint:n' are for the rig; the rest are for
- * the app, which the rig passes on untouched.
+ * Actions a key press can stand for. 'toggle', 'takeover' and 'viewpoint:n' are for the rig; the
+ * rest are for the app, which the rig passes on untouched. 'takeover' comes from a double tap or
+ * double click on the tour, not from a key.
  */
-export type KeyAction = 'toggle' | 'menu' | 'mute' | 'stats' | 'mood' | 'photo' | 'station' | `viewpoint:${number}`;
+export type KeyAction =
+  'toggle' | 'takeover' | 'menu' | 'mute' | 'stats' | 'mood' | 'photo' | 'station' | `viewpoint:${number}`;
 
 const ACTION_KEYS: Readonly<Record<string, KeyAction>> = {
   Space: 'toggle',
@@ -87,11 +121,27 @@ function deadZone(v: number): number {
 export class InputMapper {
   readonly state: InputState = {
     forward: 0, right: 0, up: 0, boost: false, lookYaw: 0, lookPitch: 0, turn: 0, tilt: 0,
+    panYaw: 0, panPitch: 0, zoom: 1,
   };
 
   private readonly keys = new Set<string>();
   /** Touch pointers that are down, oldest first. The first one steers. */
   private readonly touches: number[] = [];
+  /** Where each of `touches` was last seen, same order. */
+  private readonly touchXs: number[] = [];
+  private readonly touchYs: number[] = [];
+  private look = false;
+  // The press that may become a tap, and the last tap.
+  private tapId = -1;
+  private tapValid = false;
+  private tapMouse = false;
+  private tapStart = 0;
+  private tapX = 0;
+  private tapY = 0;
+  private lastTapEnd = -Infinity;
+  private lastTapMouse = false;
+  private lastTapX = 0;
+  private lastTapY = 0;
   private anchorId = -1;
   private touchX = 0;
   private touchY = 0;
@@ -120,17 +170,48 @@ export class InputMapper {
   }
 
   /**
+   * Free look on the tour. While on, a drag (one finger, or the left mouse button) pans instead of
+   * flying, two fingers pinch to zoom, the wheel zooms, a held finger does not fly, and a double tap
+   * or double click is reported by pointerUp as 'takeover'. The rig keeps it equal to "on the tour".
+   */
+  get tourLook(): boolean {
+    return this.look;
+  }
+
+  setTourLook(on: boolean): void {
+    if (on === this.look) return;
+    this.look = on;
+    this.tapValid = false;
+    this.lastTapEnd = -Infinity;
+    this.state.panYaw = 0;
+    this.state.panPitch = 0;
+    this.state.zoom = 1;
+    this.refresh();
+  }
+
+  /**
    * A pointer went down on the view. A mouse button starts a drag look (pointer lock, when the page
    * grants it, takes over from there). The first finger steers and flies; a second one boosts.
+   * On the tour (`tourLook`) the same presses pan, pinch and tap instead.
    */
   pointerDown(e: PointerLike): void {
     if (e.pointerType === 'mouse') {
-      if ((e.button ?? 0) === 0) this.mouseDown = true;
+      if ((e.button ?? 0) !== 0) return;
+      this.mouseDown = true;
+      this.tapBegin(e, true);
       return;
     }
     if (this.touches.includes(e.pointerId)) return;
     this.touches.push(e.pointerId);
-    if (this.touches.length === 1) this.anchor(e);
+    this.touchXs.push(e.clientX);
+    this.touchYs.push(e.clientY);
+    if (this.touches.length === 1) {
+      this.anchor(e);
+      this.tapBegin(e, false);
+    } else {
+      // A second finger makes this a pinch, not a tap.
+      this.tapValid = false;
+    }
     this.refresh();
   }
 
@@ -138,12 +219,41 @@ export class InputMapper {
   pointerMove(e: PointerLike, locked: boolean): void {
     const s = this.state;
     if (e.pointerType === 'mouse') {
+      if (this.look) {
+        if (!this.mouseDown) return;
+        this.tapTrack(e);
+        s.panYaw -= (e.movementX ?? 0) * MOUSE_SENSITIVITY;
+        s.panPitch -= (e.movementY ?? 0) * MOUSE_SENSITIVITY;
+        return;
+      }
       if (!locked && !this.mouseDown) return;
       s.lookYaw -= (e.movementX ?? 0) * MOUSE_SENSITIVITY;
       s.lookPitch -= (e.movementY ?? 0) * MOUSE_SENSITIVITY;
       return;
     }
-    if (this.touches[0] !== e.pointerId) return;
+    const i = this.touches.indexOf(e.pointerId);
+    if (i < 0) return;
+    const px = this.touchXs[i]!, py = this.touchYs[i]!;
+    this.touchXs[i] = e.clientX;
+    this.touchYs[i] = e.clientY;
+    if (this.look) {
+      this.tapTrack(e);
+      if (this.touches.length === 1) {
+        s.panYaw -= (e.clientX - px) * TOUCH_SENSITIVITY;
+        s.panPitch -= (e.clientY - py) * TOUCH_SENSITIVITY;
+      } else if (i < 2) {
+        // The first two fingers pinch: their distance before and after this move.
+        const j = 1 - i;
+        const ox = this.touchXs[j]!, oy = this.touchYs[j]!;
+        const before = Math.hypot(px - ox, py - oy);
+        const after = Math.hypot(e.clientX - ox, e.clientY - oy);
+        if (before > PINCH_MIN && after > PINCH_MIN) s.zoom *= before / after;
+      }
+      // Keep the steering anchor current, so leaving the tour mid-touch does not jump.
+      if (i === 0) this.anchor(e);
+      return;
+    }
+    if (i !== 0) return;
     // After the steering finger lifts, the next one steers from wherever it is now.
     if (this.anchorId !== e.pointerId) {
       this.anchor(e);
@@ -162,16 +272,78 @@ export class InputMapper {
     this.touchY = e.clientY;
   }
 
-  /** A pointer went up or was cancelled. */
-  pointerUp(e: PointerLike): void {
+  /**
+   * A pointer went up, or was cancelled (`cancelled`, which is never a tap). Returns 'takeover' when
+   * this completes a double tap or double click on the tour, else null.
+   */
+  pointerUp(e: PointerLike, cancelled = false): KeyAction | null {
     if (e.pointerType === 'mouse') {
-      if ((e.button ?? 0) === 0) this.mouseDown = false;
-      return;
+      if ((e.button ?? 0) !== 0) return null;
+      this.mouseDown = false;
+      return this.tapEnd(e, cancelled);
     }
     const i = this.touches.indexOf(e.pointerId);
-    if (i < 0) return;
+    if (i < 0) return null;
     this.touches.splice(i, 1);
+    this.touchXs.splice(i, 1);
+    this.touchYs.splice(i, 1);
+    const action = this.tapEnd(e, cancelled);
     this.refresh();
+    return action;
+  }
+
+  /** A wheel turned over the view. Zooms the lens on the tour; returns true if it was used. */
+  wheel(e: WheelLike): boolean {
+    if (!this.look) return false;
+    const mode = e.deltaMode ?? 0;
+    const pixels = e.deltaY * (mode === 1 ? 16 : mode === 2 ? 400 : 1);
+    const rate = e.ctrlKey ? PINCH_WHEEL_ZOOM : WHEEL_ZOOM;
+    // Scrolling down (or pinching in) widens the view, as on a map.
+    this.state.zoom *= Math.exp(clamp(pixels * rate, -1, 1));
+    return true;
+  }
+
+  private tapBegin(e: PointerLike, mouse: boolean): void {
+    this.tapId = e.pointerId;
+    this.tapMouse = mouse;
+    this.tapValid = this.look && e.timeStamp !== undefined;
+    this.tapStart = e.timeStamp ?? 0;
+    this.tapX = e.clientX;
+    this.tapY = e.clientY;
+    // A second press that starts too late, too far away or with another kind of pointer starts afresh.
+    if (!this.tapValid || mouse !== this.lastTapMouse || this.tapStart - this.lastTapEnd > DOUBLE_TAP_GAP
+      || Math.hypot(this.tapX - this.lastTapX, this.tapY - this.lastTapY) > DOUBLE_TAP_REACH) {
+      this.lastTapEnd = -Infinity;
+    }
+  }
+
+  private tapTrack(e: PointerLike): void {
+    if (this.tapValid && e.pointerId === this.tapId && Math.hypot(e.clientX - this.tapX, e.clientY - this.tapY) > TAP_SLOP) {
+      this.tapValid = false;
+    }
+  }
+
+  private tapEnd(e: PointerLike, cancelled: boolean): KeyAction | null {
+    if (e.pointerId !== this.tapId) return null;
+    const time = e.timeStamp;
+    const tap = this.tapValid && !cancelled && this.look && time !== undefined && time - this.tapStart <= TAP_TIME
+      && Math.hypot(e.clientX - this.tapX, e.clientY - this.tapY) <= TAP_SLOP;
+    this.tapValid = false;
+    this.tapId = -1;
+    if (!tap) {
+      this.lastTapEnd = -Infinity;
+      return null;
+    }
+    if (this.lastTapEnd > -Infinity) {
+      // tapBegin already checked that this press started in time and in reach of the last tap.
+      this.lastTapEnd = -Infinity;
+      return 'takeover';
+    }
+    this.lastTapEnd = time;
+    this.lastTapMouse = this.tapMouse;
+    this.lastTapX = this.tapX;
+    this.lastTapY = this.tapY;
+    return null;
   }
 
   /**
@@ -194,12 +366,20 @@ export class InputMapper {
   reset(): void {
     this.keys.clear();
     this.touches.length = 0;
+    this.touchXs.length = 0;
+    this.touchYs.length = 0;
     this.mouseDown = false;
     this.anchorId = -1;
+    this.tapId = -1;
+    this.tapValid = false;
+    this.lastTapEnd = -Infinity;
     this.padForward = this.padRight = this.padUp = this.padTurn = this.padTilt = 0;
     this.padBoost = false;
     this.state.lookYaw = 0;
     this.state.lookPitch = 0;
+    this.state.panYaw = 0;
+    this.state.panPitch = 0;
+    this.state.zoom = 1;
     this.refresh();
   }
 
@@ -217,12 +397,14 @@ export class InputMapper {
   private refresh(): void {
     const s = this.state;
     const k = this.keys;
-    const touching = this.touches.length > 0 ? 1 : 0;
+    // On the tour a finger looks and zooms; it neither flies nor boosts.
+    const fingers = this.look ? 0 : this.touches.length;
+    const touching = fingers > 0 ? 1 : 0;
     s.forward = clamp(this.axis('KeyW', 'KeyS') + this.axis('ArrowUp', 'ArrowDown') + touching + this.padForward, -1, 1);
     s.right = clamp(this.axis('KeyD', 'KeyA') + this.padRight, -1, 1);
     s.up = clamp(this.axis('KeyE', 'KeyQ') + this.padUp, -1, 1);
     s.turn = clamp(this.axis('ArrowLeft', 'ArrowRight') + this.padTurn, -1, 1);
     s.tilt = clamp(this.padTilt, -1, 1);
-    s.boost = k.has('ShiftLeft') || k.has('ShiftRight') || this.touches.length > 1 || this.padBoost;
+    s.boost = k.has('ShiftLeft') || k.has('ShiftRight') || fingers > 1 || this.padBoost;
   }
 }

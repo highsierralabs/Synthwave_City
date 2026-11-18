@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CAMERA_RADIUS, MAX_ALTITUDE } from '../../../src/camera/flight';
-import { BLEND_TIME, EASE_TIME, IDLE_OFFER, REDUCED_RATE, createCameraRig, type CameraRig } from '../../../src/camera/index';
+import {
+  BLEND_TIME, EASE_TIME, IDLE_OFFER, LOOK_HOLD, MAX_TOUR_FOV, MIN_TOUR_FOV, REDUCED_RATE, createCameraRig, type CameraRig,
+} from '../../../src/camera/index';
+import { MAX_PITCH } from '../../../src/camera/flight';
+import { TOUCH_SENSITIVITY } from '../../../src/camera/input';
 import { Tour, createTourSample } from '../../../src/camera/tour';
 import { createCityPlan } from '../../../src/city/index';
 import type { CameraPose } from '../../../src/contracts/camera';
@@ -134,15 +138,19 @@ describe('rig: handing over', () => {
     expect(Math.abs(rig.speed - tourSpeed)).toBeLessThan(3);
   });
 
-  it('a look takes over too, and the camera then coasts to a stop', () => {
+  it('a mouse look on the tour does not take over; a double click does, and the camera coasts to a stop', () => {
     const { rig, frame, pose } = start();
     run(rig, frame, pose, 5);
-    const before = { ...pose };
     rig.input.pointerMove({ pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0, movementX: 40, movementY: 0 }, true);
     tick(frame, DT);
     rig.update(frame, pose);
+    expect(rig.mode).toBe('tour');
+    const before = { ...pose };
+    rig.handleKey('takeover');
+    tick(frame, DT);
+    rig.update(frame, pose);
     expect(rig.mode).toBe('free');
-    expect(angleDelta(before.yaw, pose.yaw)).toBeCloseTo(-40 * 0.0022, 6);
+    expect(Math.abs(angleDelta(before.yaw, pose.yaw))).toBeLessThan(1e-9);
     const moved = run(rig, frame, pose, 4);
     expect(moved.speed).toBeLessThan(45);
     expect(rig.speed).toBeLessThan(0.01);
@@ -543,5 +551,177 @@ describe('rig: robustness', () => {
     const moved = run(rig, frame, pose, 5);
     expect(moved.speed).toBeLessThan(63);
     expect(moved.speed).toBeGreaterThan(12);
+  });
+});
+
+/** Two rigs on the same tour in lockstep: `rig` gets input, `twin` shows where the tour alone would look. */
+function pair(): {
+  rig: CameraRig; pose: CameraPose; twinPose: CameraPose; actions: string[]; step: (seconds: number) => number;
+} {
+  const actions: string[] = [];
+  const rig = createCameraRig(plan, { onAction: (a) => actions.push(a) });
+  const twin = createCameraRig(plan);
+  const frame = makeFrame(0, 0);
+  const pose = makePose();
+  const twinPose = makePose();
+  rig.update(frame, pose);
+  twin.update(frame, twinPose);
+  /** Run both; returns the largest per-frame change in the yaw offset between them, radians. */
+  const step = (seconds: number): number => {
+    let worst = 0;
+    let last = angleDelta(twinPose.yaw, pose.yaw);
+    const n = Math.max(1, Math.round(seconds / DT));
+    for (let i = 0; i < n; i++) {
+      tick(frame, DT);
+      rig.update(frame, pose);
+      twin.update(frame, twinPose);
+      const now = angleDelta(twinPose.yaw, pose.yaw);
+      worst = Math.max(worst, Math.abs(now - last));
+      last = now;
+    }
+    return worst;
+  };
+  return { rig, pose, twinPose, actions, step };
+}
+
+const finger = (pointerId: number, clientX: number, clientY: number): { pointerId: number; pointerType: string; clientX: number; clientY: number } =>
+  ({ pointerId, pointerType: 'touch', clientX, clientY });
+
+describe('rig: free look on the tour', () => {
+  it('a drag turns the view while the tour flies on, holds, then eases back without a jump', () => {
+    const { rig, pose, twinPose, actions, step } = pair();
+    step(6);
+    rig.input.pointerDown(finger(3, 400, 300));
+    rig.input.pointerMove(finger(3, 300, 330), false);
+    step(DT);
+    expect(rig.mode).toBe('tour');
+    expect(actions).toEqual([]);
+    // Drag left looks left (yaw grows); drag down looks down.
+    expect(angleDelta(twinPose.yaw, pose.yaw)).toBeCloseTo(100 * TOUCH_SENSITIVITY, 9);
+    expect(pose.pitch - twinPose.pitch).toBeCloseTo(-30 * TOUCH_SENSITIVITY, 9);
+    // Still on the tour path.
+    expect(distance(pose, twinPose)).toBeLessThan(1e-9);
+    rig.input.pointerUp(finger(3, 300, 330));
+    step(LOOK_HOLD - 0.1);
+    expect(angleDelta(twinPose.yaw, pose.yaw)).toBeCloseTo(100 * TOUCH_SENSITIVITY, 9);
+    let worst = step(1.1);
+    // Unhurried: a second into the return, close to half of the look is still there.
+    expect(angleDelta(twinPose.yaw, pose.yaw)).toBeGreaterThan(0.45 * 100 * TOUCH_SENSITIVITY);
+    worst = Math.max(worst, step(5));
+    expect(Math.abs(angleDelta(twinPose.yaw, pose.yaw))).toBeLessThan(0.01);
+    expect(Math.abs(pose.pitch - twinPose.pitch)).toBeLessThan(0.01);
+    // The return is gentle: well under 2 rad/s at its fastest.
+    expect(worst / DT).toBeLessThan(2);
+    expect(rig.mode).toBe('tour');
+  });
+
+  it('pitch stays inside the free-flight limit, and dragging back responds at once', () => {
+    const { rig, pose, step } = pair();
+    step(3);
+    rig.input.pointerDown(finger(3, 400, 0));
+    rig.input.pointerMove(finger(3, 400, 2000), false);
+    step(DT);
+    expect(pose.pitch).toBeCloseTo(-MAX_PITCH, 9);
+    rig.input.pointerMove(finger(3, 400, 1900), false);
+    step(DT);
+    expect(pose.pitch).toBeGreaterThan(-MAX_PITCH + 100 * TOUCH_SENSITIVITY * 0.9);
+  });
+
+  it('a pinch zooms the lens, the zoom stays for the tour, and it eases back once the tour is left', () => {
+    const { rig, pose, step } = pair();
+    step(2);
+    expect(pose.fov).toBe(CAMERA_FOV);
+    rig.input.pointerDown(finger(1, 300, 300));
+    rig.input.pointerDown(finger(2, 400, 300));
+    rig.input.pointerMove(finger(2, 500, 300), false);
+    step(1);
+    const zoomed = 2 * Math.atan(Math.tan((CAMERA_FOV * Math.PI) / 360) * 0.5) * (180 / Math.PI);
+    expect(pose.fov).toBeCloseTo(zoomed, 1);
+    step(20);
+    expect(pose.fov).toBeCloseTo(zoomed, 1);
+    expect(rig.mode).toBe('tour');
+    // Limits both ways.
+    rig.input.wheel({ deltaY: -10000 });
+    step(1);
+    expect(pose.fov).toBe(MIN_TOUR_FOV);
+    for (let i = 0; i < 5; i++) rig.input.wheel({ deltaY: 10000 });
+    step(1);
+    expect(pose.fov).toBe(MAX_TOUR_FOV);
+    rig.input.pointerUp(finger(1, 300, 300));
+    rig.input.pointerUp(finger(2, 500, 300));
+    rig.handleKey('takeover');
+    step(DT);
+    expect(pose.fov).toBeGreaterThan(CAMERA_FOV + 10);
+    step(4);
+    expect(Math.abs(pose.fov - CAMERA_FOV)).toBeLessThan(0.1);
+    // Back on the tour the lens starts from normal, not from the old zoom.
+    rig.setMode('tour');
+    step(3);
+    expect(Math.abs(pose.fov - CAMERA_FOV)).toBeLessThan(0.1);
+  });
+
+  it('the wheel does nothing in free flight', () => {
+    const { rig, pose, step } = pair();
+    rig.setMode('free');
+    step(1);
+    expect(rig.input.wheel({ deltaY: -500 })).toBe(false);
+    step(1);
+    expect(Math.abs(pose.fov - CAMERA_FOV)).toBeLessThan(0.1);
+  });
+
+  it('a double tap leaves the tour from the panned view, with no jump, and the view then stays', () => {
+    const { rig, pose, actions, step } = pair();
+    step(8);
+    rig.input.pointerDown(finger(3, 400, 300));
+    rig.input.pointerMove(finger(3, 250, 300), false);
+    rig.input.pointerUp(finger(3, 250, 300));
+    step(0.5);
+    const before = { ...pose };
+    rig.handleKey('takeover');
+    expect(rig.mode).toBe('free');
+    expect(actions).toEqual(['mode']);
+    expect(rig.input.tourLook).toBe(false);
+    step(DT);
+    expect(Math.abs(angleDelta(before.yaw, pose.yaw))).toBeLessThan(1e-9);
+    expect(pose.pitch).toBeCloseTo(before.pitch, 9);
+    step(LOOK_HOLD + 3);
+    expect(Math.abs(angleDelta(before.yaw, pose.yaw))).toBeLessThan(1e-9);
+    // In free flight 'takeover' changes nothing.
+    rig.handleKey('takeover');
+    expect(actions).toEqual(['mode']);
+  });
+
+  it('works during the return to the tour, and a look there carries into free flight', () => {
+    const { rig, pose, step } = pair();
+    step(2);
+    rig.setMode('free');
+    step(1);
+    rig.setMode('tour');
+    expect(rig.input.tourLook).toBe(true);
+    step(0.3);
+    rig.input.pointerDown(finger(3, 400, 300));
+    rig.input.pointerMove(finger(3, 300, 300), false);
+    step(DT);
+    expect(rig.mode).toBe('tour');
+    const before = { ...pose };
+    rig.input.keyDown({ code: 'KeyW' });
+    step(DT);
+    expect(rig.mode).toBe('free');
+    expect(Math.abs(angleDelta(before.yaw, pose.yaw))).toBeLessThan(0.02);
+  });
+
+  it('a viewpoint glide starts from the panned view and drops the look', () => {
+    const { rig, pose, step } = pair();
+    step(4);
+    rig.input.pointerDown(finger(3, 400, 300));
+    rig.input.pointerMove(finger(3, 200, 300), false);
+    step(DT);
+    const before = { ...pose };
+    rig.goToViewpoint(0);
+    expect(rig.input.tourLook).toBe(false);
+    step(DT);
+    expect(Math.abs(angleDelta(before.yaw, pose.yaw))).toBeLessThan(0.05);
+    step(EASE_TIME + 0.5);
+    expect(Math.abs(angleDelta(rig.viewpoints[0]!.pose.yaw, pose.yaw))).toBeLessThan(1e-6);
   });
 });

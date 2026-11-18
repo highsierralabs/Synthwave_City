@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  InputMapper, MOUSE_SENSITIVITY, STICK_DEAD_ZONE, TOUCH_SENSITIVITY, isCameraKey, type PointerLike,
+  DOUBLE_TAP_GAP, DOUBLE_TAP_REACH, InputMapper, MOUSE_SENSITIVITY, PINCH_WHEEL_ZOOM, STICK_DEAD_ZONE, TAP_SLOP, TAP_TIME,
+  TOUCH_SENSITIVITY, WHEEL_ZOOM, isCameraKey, type PointerLike,
 } from '../../../src/camera/input';
 
 const key = (code: string, extra: object = {}): { code: string } => ({ code, ...extra });
@@ -112,7 +113,9 @@ describe('input: keyboard', () => {
     m.pointerMove(mouse(30, 0), false);
     m.gamepad(1, 1, 1, 1, 1, 0, true);
     m.reset();
-    expect(m.state).toEqual({ forward: 0, right: 0, up: 0, boost: false, lookYaw: 0, lookPitch: 0, turn: 0, tilt: 0 });
+    expect(m.state).toEqual({
+      forward: 0, right: 0, up: 0, boost: false, lookYaw: 0, lookPitch: 0, turn: 0, tilt: 0, panYaw: 0, panPitch: 0, zoom: 1,
+    });
     expect(m.active).toBe(false);
     m.pointerMove(mouse(30, 0), false);
     expect(m.state.lookYaw).toBe(0);
@@ -202,6 +205,182 @@ describe('input: touch', () => {
     expect(m.state.forward).toBe(1);
     m.pointerUp(touch(1, 0, 0));
     expect(m.state.forward).toBe(0);
+  });
+
+  it('does not report taps in free flight', () => {
+    const m = new InputMapper();
+    m.pointerDown(tap(1, 100, 100, 0));
+    expect(m.pointerUp(tap(1, 100, 100, 80))).toBeNull();
+    m.pointerDown(tap(2, 100, 100, 160));
+    expect(m.pointerUp(tap(2, 100, 100, 240))).toBeNull();
+  });
+});
+
+const tap = (pointerId: number, clientX: number, clientY: number, timeStamp: number, pointerType = 'touch'): PointerLike =>
+  ({ pointerId, pointerType, clientX, clientY, timeStamp, button: 0, movementX: 0, movementY: 0 });
+
+function touring(): InputMapper {
+  const m = new InputMapper();
+  m.setTourLook(true);
+  return m;
+}
+
+/** Press and lift one pointer; returns what the lift reported. */
+function press(m: InputMapper, id: number, x: number, y: number, down: number, up: number, type = 'touch'): string | null {
+  m.pointerDown(tap(id, x, y, down, type));
+  return m.pointerUp(tap(id, x, y, up, type));
+}
+
+describe('input: free look on the tour', () => {
+  it('a one-finger drag pans, and a held finger neither flies, boosts nor counts as taking over', () => {
+    const m = touring();
+    m.pointerDown(touch(7, 200, 300));
+    expect(m.state.forward).toBe(0);
+    m.pointerMove(touch(7, 240, 280), false);
+    // The same sense as free flight: drag right to look right, drag up to look up.
+    expect(m.state.panYaw).toBeCloseTo(-40 * TOUCH_SENSITIVITY, 12);
+    expect(m.state.panPitch).toBeCloseTo(20 * TOUCH_SENSITIVITY, 12);
+    expect(m.state.lookYaw).toBe(0);
+    expect(m.active).toBe(false);
+    m.pointerDown(touch(8, 600, 300));
+    expect(m.state.boost).toBe(false);
+    expect(m.active).toBe(false);
+  });
+
+  it('two fingers pinch: spreading them zooms in, closing them zooms out, and they do not pan', () => {
+    const m = touring();
+    m.pointerDown(touch(1, 300, 300));
+    m.pointerDown(touch(2, 400, 300));
+    m.pointerMove(touch(2, 500, 300), false);
+    expect(m.state.zoom).toBeCloseTo(0.5, 12);
+    expect(m.state.panYaw).toBe(0);
+    m.state.zoom = 1;
+    m.pointerMove(touch(1, 400, 300), false);
+    expect(m.state.zoom).toBeCloseTo(2, 12);
+    // A third finger takes no part.
+    m.state.zoom = 1;
+    m.pointerDown(touch(3, 0, 0));
+    m.pointerMove(touch(3, 900, 900), false);
+    expect(m.state.zoom).toBe(1);
+  });
+
+  it('after a pinch the remaining finger pans from where it is, without a jump', () => {
+    const m = touring();
+    m.pointerDown(touch(1, 100, 100));
+    m.pointerDown(touch(2, 500, 500));
+    m.pointerMove(touch(1, 150, 100), false);
+    m.pointerUp(touch(2, 500, 500));
+    m.pointerMove(touch(1, 160, 100), false);
+    expect(m.state.panYaw).toBeCloseTo(-10 * TOUCH_SENSITIVITY, 12);
+  });
+
+  it('a mouse drags to pan with the left button held, never with pointer lock alone', () => {
+    const m = touring();
+    m.pointerMove(mouse(50, 0), true);
+    expect(m.state.panYaw).toBe(0);
+    expect(m.state.lookYaw).toBe(0);
+    m.pointerDown(mouse(0, 0));
+    m.pointerMove(mouse(50, -10), false);
+    expect(m.state.panYaw).toBeCloseTo(-50 * MOUSE_SENSITIVITY, 12);
+    expect(m.state.panPitch).toBeCloseTo(10 * MOUSE_SENSITIVITY, 12);
+    expect(m.active).toBe(false);
+  });
+
+  it('the wheel zooms on the tour only: down widens, and a trackpad pinch counts more per step', () => {
+    const m = new InputMapper();
+    expect(m.wheel({ deltaY: 100 })).toBe(false);
+    expect(m.state.zoom).toBe(1);
+    m.setTourLook(true);
+    expect(m.wheel({ deltaY: 100 })).toBe(true);
+    expect(m.state.zoom).toBeCloseTo(Math.exp(100 * WHEEL_ZOOM), 12);
+    m.state.zoom = 1;
+    m.wheel({ deltaY: -3, deltaMode: 1 });
+    expect(m.state.zoom).toBeCloseTo(Math.exp(-48 * WHEEL_ZOOM), 12);
+    m.state.zoom = 1;
+    m.wheel({ deltaY: -5, ctrlKey: true });
+    expect(m.state.zoom).toBeCloseTo(Math.exp(-5 * PINCH_WHEEL_ZOOM), 12);
+    // One huge step is limited to a factor of e.
+    m.state.zoom = 1;
+    m.wheel({ deltaY: 3, deltaMode: 2 });
+    expect(m.state.zoom).toBeCloseTo(Math.E, 12);
+  });
+
+  it('two quick taps in the same place are a double tap', () => {
+    const m = touring();
+    expect(press(m, 1, 100, 100, 0, 90)).toBeNull();
+    expect(press(m, 2, 110, 95, 90 + DOUBLE_TAP_GAP - 1, 90 + DOUBLE_TAP_GAP + 60)).toBe('takeover');
+    // A third tap starts a new pair.
+    expect(press(m, 3, 110, 95, 600, 650)).toBeNull();
+  });
+
+  it('a double click is a double tap', () => {
+    const m = touring();
+    expect(press(m, 1, 300, 200, 0, 70, 'mouse')).toBeNull();
+    expect(press(m, 1, 300, 200, 150, 220, 'mouse')).toBe('takeover');
+  });
+
+  it('is not fooled by slow, distant, long, moving, pinching, cancelled or mixed presses', () => {
+    let m = touring();
+    press(m, 1, 100, 100, 0, 50);
+    expect(press(m, 2, 100, 100, 50 + DOUBLE_TAP_GAP + 1, 500)).toBeNull();
+
+    m = touring();
+    press(m, 1, 100, 100, 0, 50);
+    expect(press(m, 2, 100 + DOUBLE_TAP_REACH + 1, 100, 100, 150)).toBeNull();
+
+    m = touring();
+    press(m, 1, 100, 100, 0, TAP_TIME + 1);
+    expect(press(m, 2, 100, 100, TAP_TIME + 50, TAP_TIME + 100)).toBeNull();
+
+    m = touring();
+    m.pointerDown(tap(1, 100, 100, 0));
+    m.pointerMove(tap(1, 100 + TAP_SLOP + 1, 100, 20), false);
+    m.pointerMove(tap(1, 100, 100, 40), false);
+    expect(m.pointerUp(tap(1, 100, 100, 60))).toBeNull();
+    expect(press(m, 2, 100, 100, 100, 150)).toBeNull();
+
+    m = touring();
+    press(m, 1, 100, 100, 0, 50);
+    m.pointerDown(tap(2, 100, 100, 100));
+    m.pointerDown(tap(3, 300, 100, 110));
+    expect(m.pointerUp(tap(3, 300, 100, 120))).toBeNull();
+    expect(m.pointerUp(tap(2, 100, 100, 130))).toBeNull();
+
+    m = touring();
+    press(m, 1, 100, 100, 0, 50);
+    m.pointerDown(tap(2, 100, 100, 100));
+    expect(m.pointerUp(tap(2, 100, 100, 150), true)).toBeNull();
+
+    m = touring();
+    press(m, 1, 100, 100, 0, 50);
+    expect(press(m, 1, 100, 100, 100, 150, 'mouse')).toBeNull();
+
+    // Without event times there are no taps at all.
+    m = touring();
+    m.pointerDown(touch(1, 100, 100));
+    m.pointerUp(touch(1, 100, 100));
+    m.pointerDown(touch(2, 100, 100));
+    expect(m.pointerUp(touch(2, 100, 100))).toBeNull();
+  });
+
+  it('switching free look off restores flying, drops waiting look and forgets a half double tap', () => {
+    const m = touring();
+    m.pointerDown(touch(4, 100, 100));
+    m.pointerMove(touch(4, 130, 100), false);
+    m.wheel({ deltaY: 50 });
+    m.setTourLook(false);
+    expect(m.state.panYaw).toBe(0);
+    expect(m.state.zoom).toBe(1);
+    // The finger still down now flies, and steers from where it is.
+    expect(m.state.forward).toBe(1);
+    m.pointerMove(touch(4, 140, 100), false);
+    expect(m.state.lookYaw).toBeCloseTo(-10 * TOUCH_SENSITIVITY, 12);
+    m.pointerUp(touch(4, 140, 100));
+    m.setTourLook(true);
+    press(m, 6, 100, 100, 200, 240);
+    m.setTourLook(false);
+    m.setTourLook(true);
+    expect(press(m, 5, 100, 100, 300, 340)).toBeNull();
   });
 });
 

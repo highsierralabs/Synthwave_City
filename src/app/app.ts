@@ -93,11 +93,11 @@ export async function boot(): Promise<void> {
     if (coarse) {
       return rig && rig.mode === 'free'
         ? 'Hold to fly · Back to tour to ride along'
-        : 'Drag to look · hold to fly · ≡ for the menu';
+        : 'Drag to look · pinch to zoom · double tap to fly · ≡ for the menu';
     }
     return rig && rig.mode === 'free'
       ? 'W A S D to fly · Shift to boost · Space returns to the tour'
-      : 'Move the mouse or press W A S D to take over · Esc for the menu';
+      : 'Drag to look · wheel to zoom · double-click or W A S D to fly · Esc for the menu';
   };
 
   const enter = (gesture: boolean): void => {

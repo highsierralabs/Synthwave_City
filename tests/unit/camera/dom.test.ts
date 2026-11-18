@@ -44,7 +44,8 @@ function fakePage(): {
 
 function fire(target: EventTarget, type: string, fields: object = {}): Event {
   const event = new Event(type, { cancelable: true });
-  Object.assign(event, fields);
+  // Own properties, because some (timeStamp) are getters on Event.prototype that assignment cannot shadow.
+  for (const [k, v] of Object.entries(fields)) Object.defineProperty(event, k, { value: v, configurable: true });
   target.dispatchEvent(event);
   return event;
 }
@@ -120,6 +121,45 @@ describe('dom binding', () => {
     // Clicking again while locked does not ask again.
     fire(element, 'pointerdown', { pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0, button: 0 });
     expect(lockRequests()).toBe(1);
+  });
+
+  it('on the tour: a click asks for no lock, the wheel zooms, and a double click takes over and locks', () => {
+    const { element, mapper, lockRequests, actions, doc } = attach();
+    mapper.setTourLook(true);
+    const m = (t: number): object => ({ pointerId: 1, pointerType: 'mouse', clientX: 50, clientY: 50, button: 0, timeStamp: t });
+    fire(element, 'pointerdown', m(0));
+    expect(lockRequests()).toBe(0);
+    fire(element, 'pointerup', m(60));
+    expect(actions).toEqual([]);
+    const wheel = fire(element, 'wheel', { deltaY: 100, deltaMode: 0, ctrlKey: false });
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(mapper.state.zoom).toBeGreaterThan(1);
+    fire(element, 'pointerdown', m(150));
+    expect(lockRequests()).toBe(0);
+    fire(element, 'pointerup', m(210));
+    expect(actions).toEqual(['takeover']);
+    expect(lockRequests()).toBe(1);
+    expect(doc.pointerLockElement).toBe(element);
+    // Off the tour the wheel is the browser's.
+    mapper.setTourLook(false);
+    expect(fire(element, 'wheel', { deltaY: 100, deltaMode: 0, ctrlKey: true }).defaultPrevented).toBe(false);
+  });
+
+  it('a double tap takes over without asking for pointer lock, and a cancelled touch is never a tap', () => {
+    const { element, mapper, lockRequests, actions } = attach();
+    mapper.setTourLook(true);
+    const t = (id: number, ms: number): object => ({ pointerId: id, pointerType: 'touch', clientX: 80, clientY: 80, timeStamp: ms });
+    fire(element, 'pointerdown', t(1, 0));
+    fire(element, 'pointerup', t(1, 50));
+    fire(element, 'pointerdown', t(2, 100));
+    fire(element, 'pointercancel', t(2, 150));
+    expect(actions).toEqual([]);
+    fire(element, 'pointerdown', t(3, 200));
+    fire(element, 'pointerup', t(3, 250));
+    fire(element, 'pointerdown', t(4, 300));
+    fire(element, 'pointerup', t(4, 350));
+    expect(actions).toEqual(['takeover']);
+    expect(lockRequests()).toBe(0);
   });
 
   it('reports losing pointer lock as the menu key, once, and not when it gave the lock back itself', () => {
@@ -205,5 +245,30 @@ describe('rig.attachInput', () => {
     fire(page.win, 'keydown', { code: 'Space' });
     expect(rig.mode).toBe('tour');
     expect(page.element.style.touchAction).toBe('auto');
+  });
+
+  it('on the tour a drag does not take over, and a double tap does', () => {
+    const page = fakePage();
+    const actions: string[] = [];
+    const rig = createCameraRig(emptyPlan(), { onAction: (a) => actions.push(a) });
+    const frame = makeFrame(0, 0);
+    const pose = makePose();
+    rig.update(frame, pose);
+    rig.attachInput(page.element);
+    const t = (id: number, x: number, ms: number): object => ({ pointerId: id, pointerType: 'touch', clientX: x, clientY: 80, timeStamp: ms });
+    fire(page.element, 'pointerdown', t(1, 100, 0));
+    fire(page.element, 'pointermove', t(1, 300, 100));
+    fire(page.element, 'pointerup', t(1, 300, 200));
+    frame.dt = 1 / 60;
+    frame.time += frame.dt;
+    rig.update(frame, pose);
+    expect(rig.mode).toBe('tour');
+    fire(page.element, 'pointerdown', t(2, 100, 1000));
+    fire(page.element, 'pointerup', t(2, 100, 1050));
+    fire(page.element, 'pointerdown', t(3, 100, 1150));
+    fire(page.element, 'pointerup', t(3, 100, 1200));
+    expect(rig.mode).toBe('free');
+    expect(actions).toEqual(['mode']);
+    expect(page.lockRequests()).toBe(0);
   });
 });
